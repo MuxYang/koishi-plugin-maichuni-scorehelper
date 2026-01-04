@@ -1,0 +1,8 @@
+# 只发布 src 目录
+/*
+!/src/
+!/package.json
+!/README.md
+!/readme.md
+!/LICENSE
+!/license

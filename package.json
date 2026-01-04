@@ -1,0 +1,51 @@
+{
+  "name": "koishi-plugin-maichuni-scorehelper",
+  "description": "一个基础的 Koishi 插件，未来用于舞萌中二节奏分数辅助。",
+  "koishi": {
+    "description": {
+      "zh-CN": "舞萌中二节奏分数辅助插件（基础模板）",
+      "en": "Maimai & Chunithm score helper plugin (template)"
+    },
+    "icon": "game",
+    "author": "MuxYang <tlnkmc.b@gmail.com>",
+    "license": "MIT",
+    "service": [],
+    "dependencies": []
+  },
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "koishi",
+    "plugin",
+    "maimai",
+    "chunithm"
+  ],
+  "author": "MuxYang <tlnkmc.b@gmail.com>",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/MuxYang/koishi-plugin-maichuni-scorehelper.git"
+    },
+    "homepage": "https://github.com/MuxYang/koishi-plugin-maichuni-scorehelper",
+    "bugs": {
+      "url": "https://github.com/MuxYang/koishi-plugin-maichuni-scorehelper/issues"
+    },
+  "license": "MIT",
+  "dependencies": {
+    "koishi": "^4.15.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
