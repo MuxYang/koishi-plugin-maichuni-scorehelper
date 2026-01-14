@@ -68,6 +68,48 @@ export class MaimaiStatus extends Service {
   }
 
   /**
+   * [Public API] 获取当前状态汇总
+   */
+  public async getStatusSummary(): Promise<string> {
+    // 触发一次最新检测
+    await this.checkTask()
+
+    if (this.groups.size === 0) {
+      return '暂无服务器监控数据，请稍后再试。'
+    }
+
+    const lines: string[] = ['📡 舞萌 DX 服务器状态：']
+    
+    for (const [name, group] of this.groups) {
+      let icon = '❓'
+      let statusText = '未知'
+
+      switch (group.lastStatus) {
+        case 'ONLINE':
+          icon = '🟢'
+          statusText = '正常'
+          break
+        case 'PARTIAL_OFFLINE':
+          icon = '🟡'
+          statusText = '部分异常'
+          break
+        case 'OFFLINE':
+          icon = '🔴'
+          statusText = '全线中断'
+          break
+        default:
+          icon = '❓'
+          statusText = '未知'
+      }
+
+      lines.push(`${icon} ${name}: ${statusText}`)
+    }
+
+    lines.push(`\n🕒 更新时间：${new Date().toLocaleString()}`)
+    return lines.join('\n')
+  }
+
+  /**
    * 核心任务：同步配置 -> 获取状态 -> 分析差异 -> 推送
    */
   private async checkTask() {
