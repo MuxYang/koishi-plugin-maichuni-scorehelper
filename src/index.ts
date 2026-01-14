@@ -1,13 +1,18 @@
-import { Context, Schema } from 'koishi';
+import { Context, Schema } from 'koishi'
+import { MaimaiStatus, Config as MaimaiStatusConfig } from './services/maimai-status'
 
-export const name = 'maichuni-scorehelper';
+export const name = 'maichuni-scorehelper'
+export const inject = ['http']
 
-export interface Config {}
+export interface Config {
+  maimaiMonitor: MaimaiStatusConfig
+}
 
 export const Config: Schema<Config> = Schema.object({
-  // 未来可在此添加配置项
-});
+  maimaiMonitor: MaimaiStatusConfig.description('舞萌 DX 服务器状态监控配置'),
+})
 
 export function apply(ctx: Context, config: Config) {
-  // 未来插件功能实现入口
+  // Load Maimai Status Monitor Service
+  ctx.plugin(MaimaiStatus, config.maimaiMonitor)
 }

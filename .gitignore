@@ -2,6 +2,11 @@
 /*/
 !/src/
 
+# Ignore specific files
+源码
+文档
+*.html
+
 # Node
 node_modules/
 dist/

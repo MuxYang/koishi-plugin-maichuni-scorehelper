@@ -1,5 +1,8 @@
-# 只发布 src 目录
+# 默认忽略所有文件
 /*
+
+# 白名单（不忽略的文件）
+!/dist/
 !/src/
 !/package.json
 !/README.md
