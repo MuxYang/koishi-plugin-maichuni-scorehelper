@@ -577,15 +577,22 @@ export class MaimaiStatus extends Service {
 
     for (const monitor of monitors) {
       this.cachedServiceNames[monitor.id] = monitor.name
+      const normalizedName = this.normalizeGroupName(monitor.name)
 
-      if (!this.groups.has(monitor.name)) {
-        this.groups.set(monitor.name, {
-          groupName: monitor.name,
-          ids: [monitor.id],
+      let group = this.groups.get(normalizedName)
+      if (!group) {
+        group = {
+          groupName: normalizedName,
+          ids: [],
           lastNotifiedStatus: null,
           statusHistory: [],
           queryInterrupted: false
-        })
+        }
+        this.groups.set(normalizedName, group)
+      }
+
+      if (!group.ids.includes(monitor.id)) {
+        group.ids.push(monitor.id)
       }
 
       const uptimeKey = `${monitor.id}_24`
@@ -663,18 +670,33 @@ export class MaimaiStatus extends Service {
       const id = Number(idStr)
       if (!knownIds.has(id)) {
         const name = this.cachedServiceNames[id] || `Service-${id}`
-        if (!this.groups.has(name)) {
-          this.logDebug(`${this.t('detected-new-service')}: ${name} (ID: ${id})`)
-          this.groups.set(name, {
-            groupName: name,
-            ids: [id],
+        const normalizedName = this.normalizeGroupName(name)
+
+        let group = this.groups.get(normalizedName)
+        if (!group) {
+          this.logDebug(`${this.t('detected-new-service')}: ${normalizedName} (Includes ID: ${id})`)
+          group = {
+            groupName: normalizedName,
+            ids: [],
             lastNotifiedStatus: null,
             statusHistory: [],
             queryInterrupted: false
-          })
+          }
+          this.groups.set(normalizedName, group)
+        }
+
+        if (!group.ids.includes(id)) {
+          group.ids.push(id)
         }
       }
     }
+  }
+
+  private normalizeGroupName(name: string): string {
+    return name
+      .replace(/^\[.*?\]\s*/, '')
+      .replace(/\s*\[[^\]]+\]\s*$/, '')
+      .trim() || name
   }
 
   private async fetchMonitorConfig(): Promise<MonitorItem[]> {
@@ -735,12 +757,7 @@ export class MaimaiStatus extends Service {
     const currentStructure = new Map<string, number[]>()
 
     for (const item of items) {
-      let cleanName = item.name
-        .replace(/^\[.*?\]\s*/, '')
-        .replace(/\s*\[[^\]]+\]\s*$/, '')
-        .trim()
-
-      if (!cleanName) cleanName = item.name
+      let cleanName = this.normalizeGroupName(item.name)
 
       if (!currentStructure.has(cleanName)) {
         currentStructure.set(cleanName, [])
