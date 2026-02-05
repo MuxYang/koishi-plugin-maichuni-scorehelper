@@ -1,6 +1,4 @@
 import { Context, Schema, Logger, Service } from 'koishi'
-import fs from 'fs/promises'
-import path from 'path'
 
 export const name = 'maimai-status-monitor'
 
@@ -222,14 +220,12 @@ export class MaimaiStatus extends Service {
   private groups: Map<string, ServiceGroup> = new Map()
   private lastUptimeData: Record<string, number> = {}
   private cachedServiceNames: CachedServiceNames = {}
-  private readonly CACHE_FILE: string
   private readonly UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
   private locale: string = 'zh-CN'
 
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'maimaiStatus')
     this.statusLogger = ctx.logger('maimai-status')
-    this.CACHE_FILE = path.join(__dirname, '../../monitor_cache.json')
   }
 
   private t(key: string): string {
@@ -433,7 +429,7 @@ export class MaimaiStatus extends Service {
       }
       await this.saveCache(monitorItems)
       this.syncGroups(monitorItems)
-      this.logDebug(`${this.t('synced-names')}: ${monitorItems.length}`)
+      this.logDebug(`Data synced for source ${this.getDataSourceKey()}: Updated ${monitorItems.length} monitor names in DB.`)
     }
   }
 
@@ -596,13 +592,26 @@ export class MaimaiStatus extends Service {
     await this.analyzeAndNotify(heartbeatData)
   }
 
+  private getDataSourceKey(): string {
+    if (this.config.dataSource === 'awmc') return 'awmc'
+    const other = this.config.otherSource
+    if (!other) return 'other_unknown'
+    if (other.preset === 'custom') {
+      return `custom_${other.apiUrl || 'unknown'}`
+    }
+    return `other_${other.preset}`
+  }
+
   private async saveCache(items: MonitorItem[]) {
     try {
-      const cacheData = {
-        items,
-        serviceNames: this.cachedServiceNames
-      }
-      await fs.writeFile(this.CACHE_FILE, JSON.stringify(cacheData, null, 2), 'utf-8')
+      const source = this.getDataSourceKey()
+      const rows = items.map(item => ({
+        source,
+        monitor_id: item.id,
+        name: item.name,
+        updated_at: new Date()
+      }))
+      await this.ctx.database.upsert('maimai_monitor_name', rows)
     } catch (e) {
       this.statusLogger.warn(this.t('save-cache-failed'), e)
     }
@@ -610,18 +619,26 @@ export class MaimaiStatus extends Service {
 
   private async loadCache(): Promise<void> {
     try {
-      const content = await fs.readFile(this.CACHE_FILE, 'utf-8')
-      const cacheData = JSON.parse(content)
+      const source = this.getDataSourceKey()
+      const rows = await this.ctx.database.get('maimai_monitor_name', { source })
 
-      if (cacheData.serviceNames) {
-        this.cachedServiceNames = cacheData.serviceNames
+      this.cachedServiceNames = {}
+      for (const row of rows) {
+        this.cachedServiceNames[row.monitor_id] = row.name
       }
 
-      if (cacheData.items && Array.isArray(cacheData.items)) {
-        this.syncGroups(cacheData.items)
-        this.statusLogger.info(`${this.t('loaded-from-cache')}: ${cacheData.items.length}`)
-      }
-    } catch {
+      // Sync groups if needed (optional based on logic, but good to have initial state)
+      // Note: original logic loaded 'items' from file which contained grouping.
+      // Database only stores names. We might lose grouping info if it was stored in 'items'.
+      // But fetchMonitorConfig returns items with grouping. 
+      // If we restart, we rely on fetch or previous knowledge.
+      // Reconstituting groups from just names and IDs?
+      // ServiceGroup creation happens in processOtherSourceData or syncUnknownGroups.
+      // So groups will be created when data arrives.
+
+      this.statusLogger.info(`${this.t('loaded-from-cache')}: ${rows.length}`)
+    } catch (e) {
+      this.statusLogger.warn('Failed to load cache from DB', e)
       this.cachedServiceNames = {}
     }
   }
