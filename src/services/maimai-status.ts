@@ -32,6 +32,7 @@ const I18N: Record<string, Record<string, string>> = {
     'header': '舞萌 DX 服务器状态:',
     'online': '在线',
     'offline': '中断',
+    'pending': '不稳定',
     'maintenance': '监测点维护',
     'partial': '部分异常',
     'unknown': '未知',
@@ -66,6 +67,7 @@ const I18N: Record<string, Record<string, string>> = {
     'header': 'MaiMai DX Server Status:',
     'online': 'Online',
     'offline': 'Offline',
+    'pending': 'Unstable',
     'maintenance': 'Maintenance',
     'partial': 'Partial Issues',
     'unknown': 'Unknown',
@@ -194,8 +196,8 @@ interface MonitorItem {
 interface ServiceGroup {
   groupName: string
   ids: number[]
-  lastNotifiedStatus: 'ONLINE' | 'OFFLINE' | 'MAINTENANCE' | null
-  statusHistory: { timestamp: number; allUp: boolean; allDown: boolean; allMaintenance: boolean }[]
+  lastNotifiedStatus: 'ONLINE' | 'OFFLINE' | 'MAINTENANCE' | 'UNSTABLE' | null
+  statusHistory: { timestamp: number; allUp: boolean; allDown: boolean; allMaintenance: boolean; allPending: boolean }[]
   queryInterrupted: boolean
 }
 
@@ -241,6 +243,13 @@ export class MaimaiStatus extends Service {
   protected async start() {
     this.statusLogger.info(this.t('monitor-started'))
     await this.loadCache()
+
+    // 注册指令
+    this.ctx.command('maisms', '查看舞萌 DX 服务器状态')
+      .alias('maimai-status')
+      .action(async () => {
+        return await this.getStatusSummary()
+      })
 
     if (this.config.enablePush && this.validatePushTargets()) {
       // 确定检查间隔
@@ -331,6 +340,8 @@ export class MaimaiStatus extends Service {
           statusText = this.t('maintenance')
         } else if (latest.allDown) {
           statusText = this.t('offline')
+        } else if (latest.allPending) {
+          statusText = this.t('pending')
         } else {
           statusText = this.t('partial')
         }
@@ -549,6 +560,9 @@ export class MaimaiStatus extends Service {
     if (status === 3 || status === '3' || status === 'maintenance') {
       return 3
     }
+    if (status === 2 || status === '2' || status === 'pending' || status === 'unstable') {
+      return 2
+    }
     return 0
   }
 
@@ -755,6 +769,7 @@ export class MaimaiStatus extends Service {
       let downCount = 0
       let totalCount = 0
       let maintenanceCount = 0
+      let pendingCount = 0
 
       for (const id of ids) {
         const history = heartbeatData[id]
@@ -766,6 +781,7 @@ export class MaimaiStatus extends Service {
 
           if (status === 1) upCount++
           else if (status === 3) maintenanceCount++
+          else if (status === 2) pendingCount++
           else downCount++
         }
       }
@@ -773,8 +789,9 @@ export class MaimaiStatus extends Service {
       const allUp = totalCount > 0 && upCount === totalCount
       const allDown = totalCount > 0 && downCount === totalCount
       const allMaintenance = totalCount > 0 && maintenanceCount === totalCount
+      const allPending = totalCount > 0 && pendingCount === totalCount
 
-      group.statusHistory.push({ timestamp: now, allUp, allDown, allMaintenance })
+      group.statusHistory.push({ timestamp: now, allUp, allDown, allMaintenance, allPending })
       group.statusHistory = group.statusHistory.filter(h => now - h.timestamp < STATUS_WINDOW_MS)
 
       await this.checkAndNotify(group, now)
@@ -789,47 +806,49 @@ export class MaimaiStatus extends Service {
     const oldest = statusHistory[0]
     const windowDuration = now - oldest.timestamp
 
-    if (windowDuration < STATUS_WINDOW_MS) {
-      this.logDebug(`${this.t('window-not-ready')}: ${groupName} ${Math.round(windowDuration / 1000)}s < ${STATUS_WINDOW_MS / 1000}s`)
-      return
-    }
+    const checkIntervalMs = this.config.dataSource === 'awmc'
+      ? API_INTERVAL_MS
+      : (this.config.otherSource?.checkInterval ?? 600) * 1000
 
-    const allUpInWindow = statusHistory.every(h => h.allUp)
-    const allDownInWindow = statusHistory.every(h => h.allDown)
-    const allMaintenanceInWindow = statusHistory.every(h => h.allMaintenance)
+    // 窗口就绪条件：时间跨度足够，或者检查间隔本身就大于等于窗口（单次检查代表足够时长）
+    if (windowDuration >= STATUS_WINDOW_MS || checkIntervalMs >= STATUS_WINDOW_MS) {
+      const allUpInWindow = statusHistory.every(h => h.allUp)
+      const allDownInWindow = statusHistory.every(h => h.allDown)
 
-    let targetStatus: 'ONLINE' | 'OFFLINE' | 'MAINTENANCE' | null = null
-    if (allUpInWindow) {
-      targetStatus = 'ONLINE'
-    } else if (allDownInWindow) {
-      targetStatus = 'OFFLINE'
-    } else if (allMaintenanceInWindow) {
-      targetStatus = 'MAINTENANCE'
-    }
+      let targetStatus: 'ONLINE' | 'OFFLINE' | null = null
+      if (allUpInWindow) {
+        targetStatus = 'ONLINE'
+      } else if (allDownInWindow) {
+        targetStatus = 'OFFLINE'
+      }
 
-    if (!targetStatus) return
+      // 如果不是 ONLINE 或 OFFLINE，或者是 MAINTENANCE/UNSTABLE/PARTIAL，则不推送通知
+      if (!targetStatus) return
 
-    if (queryInterrupted) {
-      if (targetStatus !== lastNotifiedStatus) {
-        group.queryInterrupted = false
-      } else {
-        return
+      if (queryInterrupted) {
+        if (targetStatus !== lastNotifiedStatus) {
+          group.queryInterrupted = false
+        } else {
+          return
+        }
+      }
+
+      if (targetStatus === lastNotifiedStatus) return
+
+      const statusText = targetStatus === 'ONLINE' ? this.t('online') : this.t('offline')
+
+      const message = `${groupName} ${statusText}\n${this.t('data-source')}: ${this.getDataSourceName()}`
+
+      this.statusLogger.info(`[${groupName}] ${statusText}`)
+      await this.pushNotification(message)
+
+      group.lastNotifiedStatus = targetStatus
+      group.statusHistory = []
+    } else {
+      if (this.config.debug) {
+        this.logDebug(`${this.t('window-not-ready')}: ${groupName} ${Math.round(windowDuration / 1000)}s < ${STATUS_WINDOW_MS / 1000}s`)
       }
     }
-
-    if (targetStatus === lastNotifiedStatus) return
-
-    const statusText = targetStatus === 'ONLINE' ? this.t('online')
-      : targetStatus === 'OFFLINE' ? this.t('offline')
-        : this.t('maintenance')
-
-    const message = `${groupName} ${statusText}\n${this.t('data-source')}: ${this.getDataSourceName()}`
-
-    this.statusLogger.info(`[${groupName}] ${statusText}`)
-    await this.pushNotification(message)
-
-    group.lastNotifiedStatus = targetStatus
-    group.statusHistory = []
   }
 
   private async pushNotification(message: string) {
