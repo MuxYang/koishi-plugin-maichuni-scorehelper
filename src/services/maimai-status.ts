@@ -448,6 +448,11 @@ export class MaimaiStatus extends Service {
         timeout: 15000
       })
 
+      if (this.config.debug) {
+        const contentStr = typeof data === 'string' ? data : JSON.stringify(data)
+        this.logDebug(`Other source response: ${contentStr.slice(0, 50)}`)
+      }
+
       const parsed = this.parseOtherSourceData(data, otherSource)
       if (parsed) {
         await this.processOtherSourceData(parsed)
@@ -766,6 +771,11 @@ export class MaimaiStatus extends Service {
         headers: { 'User-Agent': this.UA },
         timeout: 15000
       })
+
+      if (this.config.debug) {
+        const contentStr = typeof data === 'string' ? data : JSON.stringify(data)
+        this.logDebug(`Heartbeat response: ${contentStr.slice(0, 50)}`)
+      }
 
       if (typeof data === 'string') {
         try {
