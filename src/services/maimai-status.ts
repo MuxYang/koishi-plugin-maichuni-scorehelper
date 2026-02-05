@@ -565,6 +565,9 @@ export class MaimaiStatus extends Service {
   }
 
   private async processOtherSourceData(monitors: any[]) {
+    // Save updated names to DB
+    await this.saveCache(monitors)
+
     for (const monitor of monitors) {
       this.cachedServiceNames[monitor.id] = monitor.name
 
