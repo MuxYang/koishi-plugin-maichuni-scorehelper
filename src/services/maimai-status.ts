@@ -2,8 +2,8 @@ import { Context, Schema, Logger, Service } from 'koishi'
 import fs from 'fs/promises'
 import path from 'path'
 
-const DEFAULT_STATUS_PAGE_URL = 'https://maistatusproxy.muxyang.com/status/maimai'
-const DEFAULT_HEARTBEAT_API_URL = 'https://maistatusproxy.muxyang.com/api/status-page/heartbeat/maimai'
+const DEFAULT_STATUS_PAGE_URL = 'https://status.awmc.cc/status/maimai'
+const DEFAULT_HEARTBEAT_API_URL = 'https://status.awmc.cc/api/status-page/heartbeat/maimai'
 
 export const name = 'maimai-status-monitor'
 
@@ -18,8 +18,8 @@ export interface Config {
 export const Config: Schema<Config> = Schema.object({
   interval: Schema.number().default(60000).description('轮询间隔 (毫秒)，建议不低于 30000'),
   targetChannelId: Schema.string().description('推送通知的目标群组/频道 ID (可选，留空则仅在控制台输出)'),
-  statusPageUrl: Schema.string().default(DEFAULT_STATUS_PAGE_URL).description('状态页 URL，默认使用内置反代，可自定义'),
-  heartbeatApiUrl: Schema.string().default(DEFAULT_HEARTBEAT_API_URL).description('心跳 API URL，默认使用内置反代，可自定义'),
+  statusPageUrl: Schema.string().default(DEFAULT_STATUS_PAGE_URL).description('状态页 URL，可自定义'),
+  heartbeatApiUrl: Schema.string().default(DEFAULT_HEARTBEAT_API_URL).description('心跳 API URL，可自定义'),
   debug: Schema.boolean().default(false).description('开启后输出详细调试日志')
 })
 
@@ -33,8 +33,8 @@ interface MonitorItem {
 interface ServiceGroup {
   groupName: string
   ids: number[]
-  lastNotifiedStatus: 'ONLINE' | 'OFFLINE' | null
-  statusHistory: { timestamp: number, allUp: boolean, allDown: boolean }[]
+  lastNotifiedStatus: 'ONLINE' | 'OFFLINE' | 'MAINTENANCE' | null
+  statusHistory: { timestamp: number, allUp: boolean, allDown: boolean, allMaintenance: boolean }[]
   queryInterrupted: boolean
 }
 
@@ -52,6 +52,7 @@ export class MaimaiStatus extends Service {
   private clientLogger: Logger
   private timer: NodeJS.Timeout | null = null
   private groups: Map<string, ServiceGroup> = new Map()
+  private lastUptimeData: Record<string, number> = {}
   private readonly CACHE_FILE = path.join(__dirname, '../../monitor_cache.json')
   private readonly UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
@@ -102,17 +103,41 @@ export class MaimaiStatus extends Service {
       if (latest) {
         if (latest.allUp) {
           icon = '🟢'
-          statusText = '正常'
+          statusText = '在线'
+        } else if (latest.allMaintenance) {
+          icon = '🛠️'
+          statusText = '监测点维护中'
         } else if (latest.allDown) {
           icon = '🔴'
-          statusText = '全线中断'
+          statusText = '中断'
         } else {
           icon = '🟡'
           statusText = '部分异常'
         }
       }
 
-      lines.push(`${icon} ${name}: ${statusText}`)
+      // Calculate uptime for the group
+      let uptimeStr = ''
+      if (this.lastUptimeData && group.ids.length > 0) {
+        let totalUptime = 0
+        let count = 0
+        for (const id of group.ids) {
+          const key = `${id}_24`
+          if (typeof this.lastUptimeData[key] === 'number') {
+            totalUptime += this.lastUptimeData[key]
+            count++
+          }
+        }
+        if (count > 0) {
+          const avgUptime = (totalUptime / count) * 100
+          uptimeStr = `[${avgUptime.toFixed(1)}%]`
+        }
+      }
+
+      // Clean name: Name removal as requested
+      const cleanName = name.replace(/舞萌\s*DX\s*[-_]+\s*/i, '').trim() || name
+
+      lines.push(`${icon} ${cleanName}: ${statusText}${uptimeStr}`)
     }
 
     lines.push(`\n🕒 更新时间：${new Date().toLocaleString()}`)
@@ -138,6 +163,10 @@ export class MaimaiStatus extends Service {
       if (!heartbeatData) {
         this.clientLogger.warn('Failed to fetch heartbeat data.')
         return
+      }
+
+      if (heartbeatData.uptimeList) {
+        this.lastUptimeData = heartbeatData.uptimeList
       }
       
       const list = heartbeatData.heartbeatList
@@ -362,6 +391,7 @@ export class MaimaiStatus extends Service {
    * 核心逻辑 - 状态判定与通知
    * - 上线：连续10分钟全为状态1（正常）
    * - 下线：连续10分钟所有代理全部下线
+    * - 维护：连续10分钟全为状态3（维护）
    * - 用户手动查询会中断计时
    */
   private async analyzeAndNotify(heartbeatData: any) {
@@ -373,6 +403,7 @@ export class MaimaiStatus extends Service {
       let upCount = 0
       let downCount = 0
       let totalCount = 0
+      let maintenanceCount = 0
 
       for (const id of ids) {
         const history = heartbeatData[id]
@@ -382,17 +413,20 @@ export class MaimaiStatus extends Service {
           const rawStatus = typeof latest === 'object' && latest !== null ? (latest as any).status : latest
           const isUp = rawStatus === 1 || rawStatus === true || rawStatus === '1'
           const isDown = rawStatus === 0 || rawStatus === false || rawStatus === '0'
+          const isMaintenance = rawStatus === 3 || rawStatus === '3'
           if (isUp) upCount++
           else if (isDown) downCount++
+          else if (isMaintenance) maintenanceCount++
         }
       }
 
       const allUp = totalCount > 0 && upCount === totalCount
       const allDown = totalCount > 0 && downCount === totalCount
+      const allMaintenance = totalCount > 0 && maintenanceCount === totalCount
 
-      this.logDebug(`[status] ${name} up=${upCount} down=${downCount} total=${totalCount} allUp=${allUp} allDown=${allDown}`)
+      this.logDebug(`[status] ${name} up=${upCount} down=${downCount} maintenance=${maintenanceCount} total=${totalCount} allUp=${allUp} allDown=${allDown} allMaint=${allMaintenance}`)
 
-      group.statusHistory.push({ timestamp: now, allUp, allDown })
+      group.statusHistory.push({ timestamp: now, allUp, allDown, allMaintenance })
       group.statusHistory = group.statusHistory.filter(h => now - h.timestamp < STATUS_WINDOW_MS)
 
       await this.checkAndNotify(group, now)
@@ -417,14 +451,17 @@ export class MaimaiStatus extends Service {
 
     const allUpInWindow = statusHistory.every(h => h.allUp)
     const allDownInWindow = statusHistory.every(h => h.allDown)
+    const allMaintenanceInWindow = statusHistory.every(h => h.allMaintenance)
 
     this.logDebug(`[notify] ${groupName} window check: allUp=${allUpInWindow} allDown=${allDownInWindow} lastNotified=${lastNotifiedStatus} interrupted=${queryInterrupted}`)
 
-    let targetStatus: 'ONLINE' | 'OFFLINE' | null = null
+    let targetStatus: 'ONLINE' | 'OFFLINE' | 'MAINTENANCE' | null = null
     if (allUpInWindow) {
       targetStatus = 'ONLINE'
     } else if (allDownInWindow) {
       targetStatus = 'OFFLINE'
+    } else if (allMaintenanceInWindow) {
+      targetStatus = 'MAINTENANCE'
     }
 
     if (!targetStatus) return
@@ -445,7 +482,9 @@ export class MaimaiStatus extends Service {
 
     const message = targetStatus === 'ONLINE' 
       ? `${groupName} 上线`
-      : `${groupName} 下线`
+      : targetStatus === 'OFFLINE'
+        ? `${groupName} 中断`
+        : `${groupName} 监测点维护`
     
     this.clientLogger.info(`[${groupName}] ${message}`)
     await this.pushNotification(message)
