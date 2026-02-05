@@ -46,12 +46,6 @@
     }
   },
   "koishi": {
-    "service": {
-      "implements": [
-        "maimaiStatus",
-        "htmlframe"
-      ]
-    },
     "description": {
       "zh-CN": "舞萌中二节奏分数辅助插件（基础模板）",
       "en": "Maimai & Chunithm score helper plugin (template)"
@@ -67,9 +61,7 @@
       ]
     }
   },
-  "dependencies": {
-    "koishi": "^4.15.0"
-  },
+  "dependencies": {},
   "engines": {
     "node": ">=16.0.0"
   }

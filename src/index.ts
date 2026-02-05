@@ -34,7 +34,7 @@ export function apply(ctx: Context, config: Config) {
     })
 
   ctx.command('maib50test', '测试生成 MaiMai B50 成绩单图片')
-    .action(async ({ session }) => {
+    .action(async () => {
       const mockData = {
         playerName: 'MuxYang',
         playerRating: 15432,
@@ -71,8 +71,7 @@ export function apply(ctx: Context, config: Config) {
         const page = await ctx.puppeteer.page()
         await page.setViewport({ width: 1600, height: 1000 })
         await page.setContent(html)
-        // Wait for images to load if needed
-        const element = await page.$('.x___x')
+        // Wait for content to render
         // Using fullPage: true to capture everything
         const buffer = await page.screenshot({ type: 'jpeg', quality: 90, fullPage: true })
         await page.close()
@@ -84,7 +83,7 @@ export function apply(ctx: Context, config: Config) {
     })
 
   ctx.command('chub50test', '测试生成 Chunithm B50 成绩单图片')
-    .action(async ({ session }) => {
+    .action(async () => {
       const mockData = {
         playerName: 'MuxYang',
         playerRating: 16120, // Example rating
@@ -121,7 +120,7 @@ export function apply(ctx: Context, config: Config) {
         const page = await ctx.puppeteer.page()
         await page.setViewport({ width: 1600, height: 1000 })
         await page.setContent(html)
-        const element = await page.$('.x___x')
+        // Wait for content to render
         const buffer = await page.screenshot({ type: 'jpeg', quality: 90, fullPage: true })
         await page.close()
         return h.image(buffer, 'image/jpeg')

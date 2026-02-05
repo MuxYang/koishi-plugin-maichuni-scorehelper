@@ -1,20 +1,36 @@
-# 忽略所有除 src 目录外的文件夹
-/*/
-!/src/
-
-# Ignore specific files
-源码
-文档
-*.html
-
-# Node
+# Node.js dependencies
 node_modules/
 dist/
+
+# Environment variables
 .env
+.env.local
+.env.*.local
+
+# Logs
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# VSCode
+# IDE settings
 .vscode/
+.idea/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Cache files
+monitor_cache.json
+.cache/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Build artifacts
+build/
+coverage/
+docs/
+res/
