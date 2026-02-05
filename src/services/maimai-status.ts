@@ -102,36 +102,27 @@ export interface OtherSourceConfig {
   webUrl?: string
   apiUrl?: string
   apiFormat?: string
+  checkInterval?: number
 }
 
 export interface Config {
-  enablePush: boolean
-  pushTargets?: string[]
   dataSource: 'awmc' | 'other'
   otherSource?: OtherSourceConfig
+  enablePush: boolean
+  pushTargets?: string[]
   debug?: boolean
 }
 
 export const Config: Schema<Config> = Schema.intersect([
+  // 数据源选择（最顶部）
   Schema.object({
-    enablePush: Schema.boolean().default(false).description('启用状态变化推送通知'),
     dataSource: Schema.union([
-      Schema.const('awmc').description('status.awmc.cc'),
+      Schema.const('awmc').description('status.awmc.cc (内置)'),
       Schema.const('other').description('其他数据源'),
     ]).default('awmc').description('数据源'),
-    debug: Schema.boolean().default(false).description('开启调试日志'),
-  }),
-  Schema.union([
-    Schema.object({
-      enablePush: Schema.const(true),
-      pushTargets: Schema.array(Schema.string())
-        .role('table')
-        .description('推送目标列表，格式: user:xxxxxx 或 group:xxxxxx'),
-    }),
-    Schema.object({
-      enablePush: Schema.const(false),
-    }),
-  ]),
+  }).description('数据源设置'),
+
+  // 其他数据源配置（仅当选择 other 时显示）
   Schema.union([
     Schema.object({
       dataSource: Schema.const('other'),
@@ -141,41 +132,68 @@ export const Config: Schema<Config> = Schema.intersect([
             Schema.const('uptime-kuma').description('Uptime Kuma'),
             Schema.const('uptimerobot').description('UptimeRobot'),
             Schema.const('hetrixtools').description('HetrixTools'),
-            Schema.const('custom').description('其他'),
+            Schema.const('custom').description('自定义'),
           ]).default('uptime-kuma').description('服务类型'),
+          checkInterval: Schema.number()
+            .default(600)
+            .min(0)
+            .description('检查间隔（秒），0 = 仅手动查询'),
         }),
         Schema.union([
           Schema.object({
             preset: Schema.const('custom'),
-            webUrl: Schema.string().description('Web 页面 URL'),
             apiUrl: Schema.string().required().description('API 地址'),
+            webUrl: Schema.string().description('Web 页面 URL（可选）'),
             apiFormat: Schema.string()
               .role('textarea')
-              .description('API 响应格式模板 (仅支持JSON)'),
+              .description('API 响应格式模板（仅支持 JSON）'),
           }),
           Schema.object({
             preset: Schema.const('uptime-kuma'),
-            webUrl: Schema.string().description('Web 页面 URL'),
             apiUrl: Schema.string().required().description('API 地址'),
+            webUrl: Schema.string().description('Web 页面 URL（可选）'),
           }),
           Schema.object({
             preset: Schema.const('uptimerobot'),
-            webUrl: Schema.string().description('Web 页面 URL'),
             apiUrl: Schema.string().required().description('API 地址'),
+            webUrl: Schema.string().description('Web 页面 URL（可选）'),
           }),
           Schema.object({
             preset: Schema.const('hetrixtools'),
-            webUrl: Schema.string().description('Web 页面 URL'),
             apiUrl: Schema.string().required().description('API 地址'),
+            webUrl: Schema.string().description('Web 页面 URL（可选）'),
           }),
           Schema.object({}),
         ]),
-      ]).description('数据源配置'),
+      ]).description('自定义数据源配置'),
     }),
     Schema.object({
       dataSource: Schema.const('awmc'),
     }),
   ]),
+
+  // 推送设置
+  Schema.object({
+    enablePush: Schema.boolean().default(false).description('启用状态变化推送通知'),
+  }).description('推送设置'),
+
+  // 推送目标（仅当启用推送时显示）
+  Schema.union([
+    Schema.object({
+      enablePush: Schema.const(true),
+      pushTargets: Schema.array(Schema.string())
+        .role('table')
+        .description('推送目标列表，格式: user:ID 或 group:ID'),
+    }),
+    Schema.object({
+      enablePush: Schema.const(false),
+    }),
+  ]),
+
+  // 调试选项（最底部）
+  Schema.object({
+    debug: Schema.boolean().default(false).description('开启调试日志'),
+  }).description('高级设置'),
 ])
 
 interface MonitorItem {
@@ -237,8 +255,20 @@ export class MaimaiStatus extends Service {
     await this.loadCache()
 
     if (this.config.enablePush && this.validatePushTargets()) {
+      // 确定检查间隔
+      let intervalMs: number
+      if (this.config.dataSource === 'awmc') {
+        intervalMs = API_INTERVAL_MS // AWMC 固定 10 分钟
+      } else {
+        const checkInterval = this.config.otherSource?.checkInterval ?? 600
+        intervalMs = checkInterval * 1000
+      }
+
       this.checkTask()
-      this.timer = setInterval(() => this.checkTask(), API_INTERVAL_MS)
+      if (intervalMs > 0) {
+        this.timer = setInterval(() => this.checkTask(), intervalMs)
+        this.logDebug(`定时检查已启动，间隔: ${intervalMs / 1000}s`)
+      }
     }
   }
 
