@@ -217,6 +217,7 @@ export class MaimaiStatus extends Service {
   private statusLogger: Logger
   private timer: NodeJS.Timeout | null = null
   private isFirstCheck = true
+  private lastManualQueryTime = 0
   private groups: Map<string, ServiceGroup> = new Map()
   private lastUptimeData: Record<string, number> = {}
   private cachedServiceNames: CachedServiceNames = {}
@@ -245,6 +246,7 @@ export class MaimaiStatus extends Service {
     this.ctx.command('maisms', '查看舞萌 DX 服务器状态')
       .alias('maimai-status')
       .action(async () => {
+        this.lastManualQueryTime = Date.now()
         return await this.getStatusSummary()
       })
 
@@ -859,12 +861,14 @@ export class MaimaiStatus extends Service {
 
       const statusText = targetStatus === 'ONLINE' ? this.t('online') : this.t('offline')
 
-      const message = `${groupName} ${statusText}\n${this.t('data-source')}: ${this.getDataSourceName()}`
+      const message = `${groupName} ${statusText}`
 
       this.statusLogger.info(`[${groupName}] ${statusText}`)
 
       if (this.isFirstCheck) {
         this.logDebug(`${groupName} First check notification suppressed.`)
+      } else if (Date.now() - this.lastManualQueryTime < 30 * 60 * 1000) {
+        this.logDebug(`${groupName} Notification suppressed due to recent manual query.`)
       } else {
         await this.pushNotification(message)
       }
