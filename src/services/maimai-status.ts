@@ -218,6 +218,7 @@ const API_INTERVAL_MS = 10 * 60 * 1000
 export class MaimaiStatus extends Service {
   private statusLogger: Logger
   private timer: NodeJS.Timeout | null = null
+  private isFirstCheck = true
   private groups: Map<string, ServiceGroup> = new Map()
   private lastUptimeData: Record<string, number> = {}
   private cachedServiceNames: CachedServiceNames = {}
@@ -379,6 +380,7 @@ export class MaimaiStatus extends Service {
       } else {
         await this.checkOtherSource()
       }
+      this.isFirstCheck = false
     } catch (e) {
       this.statusLogger.error(this.t('check-task-error'), e)
     }
@@ -840,7 +842,12 @@ export class MaimaiStatus extends Service {
       const message = `${groupName} ${statusText}\n${this.t('data-source')}: ${this.getDataSourceName()}`
 
       this.statusLogger.info(`[${groupName}] ${statusText}`)
-      await this.pushNotification(message)
+
+      if (this.isFirstCheck) {
+        this.logDebug(`${groupName} First check notification suppressed.`)
+      } else {
+        await this.pushNotification(message)
+      }
 
       group.lastNotifiedStatus = targetStatus
       group.statusHistory = []
