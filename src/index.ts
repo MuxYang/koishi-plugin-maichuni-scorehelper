@@ -1,19 +1,20 @@
 import { Context, Schema, h } from 'koishi'
+import { resolve } from 'path'
 import { MaimaiStatus, Config as MaimaiStatusConfig } from './services/maimai-status'
 import { HtmlFrame } from './services/htmlframe'
 
 export const name = 'maichuni-scorehelper'
 export const inject = {
-  required: ['http', 'puppeteer'],
-  optional: ['maimaiStatus', 'htmlframe']
+  required: ['http'],
+  optional: ['maimaiStatus', 'htmlframe', 'puppeteer']
 }
 
 export interface Config {
-  maimaiMonitor: MaimaiStatusConfig
+  statusMonitor: MaimaiStatusConfig
 }
 
 export const Config: Schema<Config> = Schema.object({
-  maimaiMonitor: MaimaiStatusConfig.description('舞萌 DX 服务器状态监控配置'),
+  statusMonitor: MaimaiStatusConfig.description('舞萌 DX 服务器状态监控'),
 })
 
 declare module 'koishi' {
@@ -23,8 +24,10 @@ declare module 'koishi' {
 }
 
 export function apply(ctx: Context, config: Config) {
-  // Load Services
-  ctx.plugin(MaimaiStatus, config.maimaiMonitor)
+  ctx.i18n.define('zh-CN', require('./locales/zh-CN.yml'))
+  ctx.i18n.define('en-US', require('./locales/en-US.yml'))
+
+  ctx.plugin(MaimaiStatus, config.statusMonitor)
   ctx.plugin(HtmlFrame)
 
   ctx.command('maisms', '查看舞萌 DX 服务器状态')
@@ -95,7 +98,7 @@ export function apply(ctx: Context, config: Config) {
           rating: 285,
           score: 1008000,
           rank: i + 1,
-          image: 'https://shama.koishi.chat/avatar.png', 
+          image: 'https://shama.koishi.chat/avatar.png',
           type: 'STD' as const,
           rate: 'SSS',
           fc: 'AJ' as const

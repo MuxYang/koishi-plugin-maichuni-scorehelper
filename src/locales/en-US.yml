@@ -1,0 +1,57 @@
+commands:
+  maisms:
+    description: View MaiMai DX server status
+  maimai-status:
+    description: View MaiMai DX server status
+  maib50test:
+    description: Test generating MaiMai B50 score image
+  chub50test:
+    description: Test generating Chunithm B50 score image
+
+status-monitor:
+  no-data: No server monitoring data available, please try again later.
+  header: "MaiMai DX Server Status:"
+  online: Online
+  offline: Offline
+  maintenance: Maintenance
+  partial: Partial Issues
+  unknown: Unknown
+  data-source: Data Source
+  push-enabled-no-targets: Push enabled but no targets configured
+  invalid-target-format: "Invalid push target format: {0}"
+  api-failed-fallback-web: API request failed, trying to sync from web page...
+  invalid-heartbeat-format: Invalid heartbeat data format
+  new-service-detected: "New service ID detected: {0}, syncing names"
+  synced-names: "Synced {0} service names"
+  other-source-no-api: Other data source API URL not configured
+  fetch-other-failed: Failed to fetch other data source
+  parse-failed: Failed to parse data source response
+  custom-needs-format: Custom data source requires API format template
+  save-cache-failed: Failed to save cache
+  loaded-from-cache: "Loaded {0} monitor items from cache"
+  detected-new-service: "Detected new service: {0} (ID: {1})"
+  puppeteer-failed: "Puppeteer fetch failed: {0}"
+  html-parse-failed: Failed to parse monitor config from HTML
+  heartbeat-parse-failed: "Heartbeat JSON parse failed: {0}"
+  http-heartbeat-failed: "HTTP heartbeat fetch failed: {0}"
+  window-not-ready: "[notify] {0} window not ready: {1}s < {2}s"
+  no-bot-available: No bot available to send notification
+  push-to-target: "Push to {0}: {1}"
+  push-failed: "Push to {0} failed"
+  monitor-started: Maimai status monitor started
+  monitor-stopped: Maimai status monitor stopped
+  check-task-error: Error in check task
+  config:
+    enable-push: Enable status change push notifications
+    data-source: Data Source
+    data-source-other: Other data source
+    debug: Enable debug logging
+    push-targets: "Push targets list, format: user:xxxxxx or group:xxxxxx"
+    preset: Service Type
+    preset-custom: Custom
+    web-url: Web Page URL
+    api-url: API URL
+    api-format: |-
+      API response format template (JSON only)
+      Example: {"monitors": [{"id": $id$, "name": "$name$", "status": $status$, "uptime": $uptime$}]}
+    other-source: Data source configuration

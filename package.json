@@ -1,6 +1,6 @@
 {
   "name": "koishi-plugin-maichuni-scorehelper",
-  "version": "0.0.28-test",
+  "version": "0.0.29-test",
   "description": "【未完成】一些舞萌中二节奏功能",
   "keywords": [
     "koishi",
@@ -24,7 +24,8 @@
   "files": [
     "dist",
     "src",
-    "web_pic"
+    "web_pic",
+    "src/locales"
   ],
   "scripts": {
     "build": "tsc",
