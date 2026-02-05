@@ -114,19 +114,20 @@ export interface Config {
 }
 
 export const Config: Schema<Config> = Schema.intersect([
-  // 数据源选择（最顶部）
+  // 数据源选择
   Schema.object({
     dataSource: Schema.union([
       Schema.const('awmc').description('status.awmc.cc (内置)'),
-      Schema.const('other').description('其他数据源'),
+      Schema.const('other').description('其他'),
     ]).default('awmc').description('数据源'),
   }).description('数据源设置'),
 
-  // 其他数据源配置（仅当选择 other 时显示）
+  // 其他数据源配置（条件显示）
   Schema.union([
     Schema.object({
-      dataSource: Schema.const('other'),
+      dataSource: Schema.const('other').required(),
       otherSource: Schema.intersect([
+        // 基础配置
         Schema.object({
           preset: Schema.union([
             Schema.const('uptime-kuma').description('Uptime Kuma'),
@@ -134,38 +135,25 @@ export const Config: Schema<Config> = Schema.intersect([
             Schema.const('hetrixtools').description('HetrixTools'),
             Schema.const('custom').description('自定义'),
           ]).default('uptime-kuma').description('服务类型'),
+          apiUrl: Schema.string().required().description('API 地址'),
           checkInterval: Schema.number()
             .default(600)
             .min(0)
             .description('检查间隔（秒），0 = 仅手动查询'),
         }),
+        // 自定义服务特有配置（仅 preset = custom 时显示）
         Schema.union([
           Schema.object({
-            preset: Schema.const('custom'),
-            apiUrl: Schema.string().required().description('API 地址'),
-            webUrl: Schema.string().description('Web 页面 URL（可选）'),
+            preset: Schema.const('custom').required(),
+            webUrl: Schema.string().description('Web 页面 URL（可选，用于获取服务名称）'),
             apiFormat: Schema.string()
               .role('textarea')
-              .description('API 响应格式模板（仅支持 JSON）'),
-          }),
-          Schema.object({
-            preset: Schema.const('uptime-kuma'),
-            apiUrl: Schema.string().required().description('API 地址'),
-            webUrl: Schema.string().description('Web 页面 URL（可选）'),
-          }),
-          Schema.object({
-            preset: Schema.const('uptimerobot'),
-            apiUrl: Schema.string().required().description('API 地址'),
-            webUrl: Schema.string().description('Web 页面 URL（可选）'),
-          }),
-          Schema.object({
-            preset: Schema.const('hetrixtools'),
-            apiUrl: Schema.string().required().description('API 地址'),
-            webUrl: Schema.string().description('Web 页面 URL（可选）'),
+              .default('{"monitors": [{"id": "$id$", "name": "$name$", "status": "$status$"}]}')
+              .description('API 格式模板，变量: $id$, $name$, $status$, $uptime$'),
           }),
           Schema.object({}),
         ]),
-      ]).description('自定义数据源配置'),
+      ]).description('其他数据源配置'),
     }),
     Schema.object({
       dataSource: Schema.const('awmc'),
@@ -177,20 +165,20 @@ export const Config: Schema<Config> = Schema.intersect([
     enablePush: Schema.boolean().default(false).description('启用状态变化推送通知'),
   }).description('推送设置'),
 
-  // 推送目标（仅当启用推送时显示）
+  // 推送目标（条件显示）
   Schema.union([
     Schema.object({
-      enablePush: Schema.const(true),
+      enablePush: Schema.const(true).required(),
       pushTargets: Schema.array(Schema.string())
         .role('table')
-        .description('推送目标列表，格式: user:ID 或 group:ID'),
+        .description('推送目标，格式: user:ID 或 group:ID'),
     }),
     Schema.object({
       enablePush: Schema.const(false),
     }),
   ]),
 
-  // 调试选项（最底部）
+  // 高级设置
   Schema.object({
     debug: Schema.boolean().default(false).description('开启调试日志'),
   }).description('高级设置'),

@@ -24,8 +24,8 @@ declare module 'koishi' {
 }
 
 export function apply(ctx: Context, config: Config) {
-  ctx.i18n.define('zh-CN', require('./locales/zh-CN.yml'))
-  ctx.i18n.define('en-US', require('./locales/en-US.yml'))
+  ctx.i18n.define('zh-CN', require(resolve(__dirname, '../src/locales/zh-CN.yml')))
+  ctx.i18n.define('en-US', require(resolve(__dirname, '../src/locales/en-US.yml')))
 
   ctx.plugin(MaimaiStatus, config.statusMonitor)
   ctx.plugin(HtmlFrame)
