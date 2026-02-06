@@ -101,6 +101,8 @@ const RATE_DISPLAY_MAP: Record<string, { label: string; color: string }> = {
 const SSS_CHAR_COLORS = ['#b8860b', '#1565c0', '#ad1457', '#c49000']
 
 export class HtmlFrame extends Service {
+    static inject = ['imagecache']
+    
     private templates: Record<string, string> = {}
     private readonly templatePaths = {
         maimai: path.join(__dirname, '../../web_pic/maimai_b50_template.html'),
@@ -115,9 +117,9 @@ export class HtmlFrame extends Service {
         for (const [key, p] of Object.entries(this.templatePaths)) {
             try {
                 this.templates[key] = await fs.readFile(p, 'utf-8')
-                this.logger.info(`${key} B50 template loaded successfully.`)
+                this.ctx.logger('htmlframe').info(`${key} B50 template loaded successfully.`)
             } catch (e) {
-                this.logger.error(`Failed to load ${key} B50 template from ${p}:`, e)
+                this.ctx.logger('htmlframe').error(`Failed to load ${key} B50 template from ${p}:`, e)
             }
         }
 
@@ -163,7 +165,7 @@ export class HtmlFrame extends Service {
                     await page.close()
                     return h.image(buffer, 'image/jpeg')
                 } catch (e) {
-                    this.logger.error(e)
+                    this.ctx.logger('htmlframe').error(e)
                     return '生成图片失败：' + (e instanceof Error ? e.message : String(e))
                 }
             })
@@ -209,7 +211,7 @@ export class HtmlFrame extends Service {
                     await page.close()
                     return h.image(buffer, 'image/jpeg')
                 } catch (e) {
-                    this.logger.error(e)
+                    this.ctx.logger('htmlframe').error(e)
                     return '生成图片失败：' + (e instanceof Error ? e.message : String(e))
                 }
             })

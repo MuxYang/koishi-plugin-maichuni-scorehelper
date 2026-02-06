@@ -325,7 +325,7 @@ function convertToB50Data(data: any, qq?: string): import('../../services/htmlfr
     const convertScore = (score: any, rank: number): ScoreItem => {
         // Song ID: DivingFish uses song_id, LXNS uses id
         const songId = score.song_id || score.id || 0
-        // DivingFish cover: ID 10001~11000 uses ID-10000, padded to 5 digits
+        // DivingFish cover: ID 10001~11000 uses ID-10000, padded to 5 digits (per DivingFish API docs)
         let coverId = parseInt(songId)
         if (isNaN(coverId)) coverId = 0
         if (coverId > 10000 && coverId <= 11000) coverId -= 10000
