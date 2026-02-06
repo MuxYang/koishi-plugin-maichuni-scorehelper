@@ -227,14 +227,25 @@ export class HtmlFrame extends Service {
         let html = this.templates[type]
         const cache = this.ctx.imagecache
 
-        // === 头像处理：统一下载缓存为本地路径 ===
+        // === 头像处理：下载缓存后转为 base64 data URL ===
         let avatarUrl: string
         if (data.qq) {
             // QQ 高清头像接口
             const qqAvatarRemote = `http://q.qlogo.cn/headimg_dl?dst_uin=${data.qq}&spec=640&img_type=jpg`
             if (cache) {
-                const cached = await cache.downloadImage(qqAvatarRemote, 'qq', data.qq, 5000)
-                avatarUrl = cached || qqAvatarRemote
+                try {
+                    const result = await cache.downloadImage(qqAvatarRemote, 'qq', data.qq, 5000)
+                    if (result) {
+                        // 已缓存，读取文件转为 base64
+                        const cachePath = cache.getCachePath('qq', data.qq)
+                        const buffer = await fs.readFile(cachePath)
+                        avatarUrl = `data:image/jpeg;base64,${buffer.toString('base64')}`
+                    } else {
+                        avatarUrl = qqAvatarRemote
+                    }
+                } catch (e) {
+                    avatarUrl = qqAvatarRemote
+                }
             } else {
                 avatarUrl = qqAvatarRemote
             }
@@ -242,8 +253,18 @@ export class HtmlFrame extends Service {
             if (cache && data.avatarUrl.includes('lxns')) {
                 const lxnsMatch = data.avatarUrl.match(/icon\/(\d+)\.png/)
                 if (lxnsMatch) {
-                    const cached = await cache.downloadImage(data.avatarUrl, 'lxns-icon', lxnsMatch[1], 5000)
-                    avatarUrl = cached || data.avatarUrl
+                    try {
+                        const result = await cache.downloadImage(data.avatarUrl, 'lxns-icon', lxnsMatch[1], 5000)
+                        if (result) {
+                            const cachePath = cache.getCachePath('lxns-icon', lxnsMatch[1])
+                            const buffer = await fs.readFile(cachePath)
+                            avatarUrl = `data:image/png;base64,${buffer.toString('base64')}`
+                        } else {
+                            avatarUrl = data.avatarUrl
+                        }
+                    } catch (e) {
+                        avatarUrl = data.avatarUrl
+                    }
                 } else {
                     avatarUrl = data.avatarUrl
                 }
@@ -289,37 +310,48 @@ export class HtmlFrame extends Service {
 
         if (type === 'maimai' && data.b35 && data.b15) {
             // Generate B35 List
-            const b35Html = data.b35.map(item => this.renderScoreItem(item, 'maimai')).join('')
+            const b35Html = (await Promise.all(data.b35.map(item => this.renderScoreItemWithImage(item, 'maimai')))).join('')
             html = html.replace('<!--B35_SLOT-->', b35Html)
 
             // Generate B15 List
-            const b15Html = data.b15.map(item => this.renderScoreItem(item, 'maimai')).join('')
+            const b15Html = (await Promise.all(data.b15.map(item => this.renderScoreItemWithImage(item, 'maimai')))).join('')
             html = html.replace('<!--B15_SLOT-->', b15Html)
         } else if (type === 'chunithm' && data.b30 && data.n20) {
             // Generate B30 List
-            const b30Html = data.b30.map(item => this.renderScoreItem(item, 'chunithm')).join('')
+            const b30Html = (await Promise.all(data.b30.map(item => this.renderScoreItemWithImage(item, 'chunithm')))).join('')
             html = html.replace('<!--B30_SLOT-->', b30Html)
 
             // Generate N20 List
-            const n20Html = data.n20.map(item => this.renderScoreItem(item, 'chunithm')).join('')
+            const n20Html = (await Promise.all(data.n20.map(item => this.renderScoreItemWithImage(item, 'chunithm')))).join('')
             html = html.replace('<!--N20_SLOT-->', n20Html)
         }
 
         return html
     }
 
-    private renderScoreItem(item: ScoreItem, gameType: 'maimai' | 'chunithm'): string {
+    private async renderScoreItemWithImage(item: ScoreItem, gameType: 'maimai' | 'chunithm'): Promise<string> {
         const typeClass = item.type === 'DX' ? 'c-#F16449' : 'c-#6EA7E1'
         const cache = this.ctx.imagecache
 
-        // 统一使用本地缓存路径（generateHtml 已预先批量下载）
-        let displayUrl = item.image // fallback: 原始远程 URL
+        // === 图片处理：优先本地缓存（转为 data:// URL），再用远程 URL fallback ===
+        let displayUrl = item.image // 最后的 fallback: 原始远程 URL
         if (cache && item.id) {
-            const cacheUrl = cache.getCacheUrl(gameType, item.id)
-            displayUrl = cacheUrl || item.image
+            const cachePath = cache.getCachePath(gameType, item.id)
+            if (await cache.exists(gameType, item.id)) {
+                try {
+                    const buffer = await fs.readFile(cachePath)
+                    displayUrl = `data:image/png;base64,${buffer.toString('base64')}`
+                } catch (e) {
+                    // 读取失败，使用原始 URL
+                    displayUrl = item.image
+                }
+            } else {
+                // 缓存不存在，使用原始 URL
+                displayUrl = item.image
+            }
         }
 
-        // Score display: maimai uses achievement% (100.5000%), chunithm uses raw score (1009000)
+        // Score display
         let scoreDisplay: string
         if (gameType === 'maimai') {
             const scoreStr = item.score.toFixed(4)
