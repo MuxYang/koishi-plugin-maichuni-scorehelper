@@ -18,7 +18,8 @@ export interface ScoreItem {
     rating: number
     score: number  // maimai: achievement %, chunithm: raw score
     rank: number
-    image: string  // cover image URL
+    image: string  // primary cover image URL (水鱼)
+    fallbackImage?: string // fallback cover image URL (LXNS)
     type: 'DX' | 'STD'
     rate: string // 'sssp', 'sss', 'ssp', etc. (lowercase from API)
     fc: '' | 'FC' | 'FC+' | 'AP' | 'AP+' | 'AJ'
@@ -51,7 +52,7 @@ const SCORE_TEMPLATE = `
         </div>
     </div>
     <div class="flex items-center h-20">
-        <img src="{image}" alt="Jacket" class="h-20 w-20 shrink-0" style="object-fit:cover;background:#f5f5f5" onerror="if(this.src.includes('www.diving-fish.com')){const lxnsUrl=this.getAttribute('data-lxns-url');if(lxnsUrl)this.src=lxnsUrl;else this.style.background='#ddd';}else{this.style.background='#ddd';}" data-lxns-url="{lxnsUrl}">
+        <img src="{image}" alt="Jacket" class="h-20 w-20 shrink-0" style="object-fit:cover;background:#f5f5f5">
         <div class="flex grow-1 flex-col px-2 lh-1.4em">
             <div class="flex font-600 items-center">
                 <div class="text-1.2em flex items-baseline grow-1" style="color:#1a1a2e">
@@ -226,19 +227,18 @@ export class HtmlFrame extends Service {
         let html = this.templates[type]
         const cache = this.ctx.imagecache
 
-        // 处理头像 URL（支持缓存）
+        // === 头像处理：统一下载缓存为本地路径 ===
         let avatarUrl: string
         if (data.qq) {
-            // 尝试缓存 QQ 头像
-            const qqAvatarUrl = `https://q1.qlogo.cn/g?b=qq&nk=${data.qq}&s=640`
+            // QQ 高清头像接口
+            const qqAvatarRemote = `http://q.qlogo.cn/headimg_dl?dst_uin=${data.qq}&spec=640&img_type=jpg`
             if (cache) {
-                const cached = await cache.downloadImage(qqAvatarUrl, 'qq', data.qq, 5000)
-                avatarUrl = cached || qqAvatarUrl
+                const cached = await cache.downloadImage(qqAvatarRemote, 'qq', data.qq, 5000)
+                avatarUrl = cached || qqAvatarRemote
             } else {
-                avatarUrl = qqAvatarUrl
+                avatarUrl = qqAvatarRemote
             }
         } else if (data.avatarUrl) {
-            // LXNS 头像缓存
             if (cache && data.avatarUrl.includes('lxns')) {
                 const lxnsMatch = data.avatarUrl.match(/icon\/(\d+)\.png/)
                 if (lxnsMatch) {
@@ -251,42 +251,34 @@ export class HtmlFrame extends Service {
                 avatarUrl = data.avatarUrl
             }
         } else {
-            avatarUrl = 'https://q1.qlogo.cn/g?b=qq&nk=0&s=640'
+            avatarUrl = ''
         }
 
-        // 批量预先下载曲绘，确保渲染时图片已就位
+        // === 批量预下载曲绘：水鱼优先 → LXNS fallback ===
         if (cache) {
-            const imagesToDownload: Array<{url: string; source: string; id: number}> = []
-            
-            if (type === 'maimai' && data.b35 && data.b15) {
-                data.b35.forEach(item => {
-                    if (item.id && item.image) {
-                        imagesToDownload.push({url: item.image, source: 'maimai', id: item.id})
-                    }
-                })
-                data.b15.forEach(item => {
-                    if (item.id && item.image) {
-                        imagesToDownload.push({url: item.image, source: 'maimai', id: item.id})
-                    }
-                })
-            } else if (type === 'chunithm' && data.b30 && data.n20) {
-                data.b30.forEach(item => {
-                    if (item.id && item.image) {
-                        imagesToDownload.push({url: item.image, source: 'chunithm', id: item.id})
-                    }
-                })
-                data.n20.forEach(item => {
-                    if (item.id && item.image) {
-                        imagesToDownload.push({url: item.image, source: 'chunithm', id: item.id})
-                    }
+            const imagesToDownload: Array<{ urls: string | string[]; source: string; id: string | number }> = []
+            const allItems: ScoreItem[] = []
+
+            if (type === 'maimai') {
+                if (data.b35) allItems.push(...data.b35)
+                if (data.b15) allItems.push(...data.b15)
+            } else {
+                if (data.b30) allItems.push(...data.b30)
+                if (data.n20) allItems.push(...data.n20)
+            }
+
+            for (const item of allItems) {
+                if (!item.id || !item.image) continue
+                const urls = [item.image, item.fallbackImage].filter(Boolean) as string[]
+                imagesToDownload.push({
+                    urls,
+                    source: type,
+                    id: item.id
                 })
             }
-            
-            // 并发下载，5秒超时
+
             if (imagesToDownload.length > 0) {
-                await cache.downloadImagesParallel(imagesToDownload, 3).catch(() => {
-                    // 下载失败不影响渲染
-                })
+                await cache.downloadImagesParallel(imagesToDownload, 5)
             }
         }
 
@@ -320,14 +312,10 @@ export class HtmlFrame extends Service {
         const typeClass = item.type === 'DX' ? 'c-#F16449' : 'c-#6EA7E1'
         const cache = this.ctx.imagecache
 
-        // 必须先下载/检查本地缓存，再用本地URL渲染
-        let displayUrl = item.image
+        // 统一使用本地缓存路径（generateHtml 已预先批量下载）
+        let displayUrl = item.image // fallback: 原始远程 URL
         if (cache && item.id) {
-            const source = gameType === 'maimai' ? 'maimai' : 'chunithm'
-            const cacheUrl = cache.getCacheUrl(source, item.id)
-            
-            // 同步使用缓存URL（imagecache会在后台确保文件存在）
-            // 若文件不存在会返回null，然后用原URL作为fallback
+            const cacheUrl = cache.getCacheUrl(gameType, item.id)
             displayUrl = cacheUrl || item.image
         }
 
@@ -338,7 +326,6 @@ export class HtmlFrame extends Service {
             const [scoreInt, scoreDec] = scoreStr.split('.')
             scoreDisplay = `<span style="color:#c62828">${scoreInt}</span>.<span class="text-.875em" style="color:#e65100">${scoreDec}</span><span class="text-.7em" style="color:#6b7280">%</span>`
         } else {
-            // Chunithm: display as integer score with comma separators
             const formatted = item.score.toLocaleString('en-US')
             scoreDisplay = `<span style="color:#c62828">${formatted}</span>`
         }
@@ -349,7 +336,6 @@ export class HtmlFrame extends Service {
 
         let rateHtml: string
         if (rateKey === 'sssp' || rateKey === 'sss') {
-            // SSS/SSS+ get rainbow-colored characters
             rateHtml = rateInfo.label.split('').map((char, i) =>
                 `<span style="color:${SSS_CHAR_COLORS[i % SSS_CHAR_COLORS.length]};font-weight:700">${char}</span>`
             ).join('')
@@ -367,25 +353,11 @@ export class HtmlFrame extends Service {
             fcHtml = '<span></span>'
         }
 
-        // Level index (0-4) default 2
         const levelIndex = item.levelIndex !== undefined ? item.levelIndex : 2
-        
-        // Generate LXNS fallback URL based on game type (inferred from image URL)
-        // For maimai: use LXNS jacket URL with song_id
-        // For chunithm: use LXNS music URL with song_id
-        let lxnsUrl = ''
-        if (item.image && item.id) {
-            if (item.image.includes('/maimai/')) {
-                lxnsUrl = `https://assets2.lxns.net/maimai/jacket/${item.id}.png`
-            } else if (item.image.includes('/chunithm/')) {
-                lxnsUrl = `https://assets2.lxns.net/chunithm/music/${item.id}.png`
-            }
-        }
 
         return SCORE_TEMPLATE
             .replace('{title}', item.title)
-            .replace('{image}', item.image)
-            .replace('{lxnsUrl}', lxnsUrl)
+            .replace('{image}', displayUrl)
             .replace('{level}', item.level)
             .replace('{levelIndex}', levelIndex.toString())
             .replace('{rating}', item.rating.toString())

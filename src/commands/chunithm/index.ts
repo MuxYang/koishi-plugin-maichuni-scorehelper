@@ -321,7 +321,8 @@ function convertToB50Data(data: any, qq?: string): import('../../services/htmlfr
         const songId = score.mid || score.cid || score.id || 0
         let coverId = parseInt(songId)
         if (isNaN(coverId)) coverId = 0
-        // Primary: DivingFish, Fallback: LXNS asset
+
+        // 水鱼 cover（primary），LXNS cover（fallback）
         const dfCoverUrl = `https://www.diving-fish.com/covers/chunithm/${String(coverId).padStart(4, '0')}.png`
         const lxnsCoverUrl = `https://assets2.lxns.net/chunithm/music/${songId}.png`
 
@@ -334,7 +335,8 @@ function convertToB50Data(data: any, qq?: string): import('../../services/htmlfr
             score: score.score || 0,
             rank: rank,
             image: dfCoverUrl,
-            type: 'STD',  // Chunithm doesn't have DX/STD distinction like maimai
+            fallbackImage: lxnsCoverUrl,
+            type: 'STD',
             rate: score.rate || score.rank || 'sss',
             fc: formatChunitmFc(score.fc || score.full_combo)
         }

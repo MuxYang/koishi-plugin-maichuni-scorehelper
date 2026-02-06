@@ -323,34 +323,31 @@ function convertToB50Data(data: any, qq?: string): import('../../services/htmlfr
     const charts = data.charts || { dx: [], sd: [] }
 
     const convertScore = (score: any, rank: number): ScoreItem => {
-        // Song ID: 规范化后的 ID（LXNS 中已对 10000 取余，DivingFish 直接返回）
+        // Song ID: 规范化后的 ID（LXNS 已对 10000 取余，DivingFish 直接返回）
         const songId = score.song_id || score.id || 0
-        
-        // DivingFish cover: ID 10001~11000 使用 ID-10000 来访问覆盖
-        // 但由于 LXNS API 已经处理了 ID，规范化后的 songId 都应该 < 10000
-        // 所以这里直接用规范化后的 songId
-        const coverId = Math.max(1, parseInt(songId) || 0)
-        
-        // Primary: DivingFish, Fallback: LXNS asset
+        let coverId = parseInt(songId) || 0
+
+        // 水鱼 cover: ID 10001~11000 使用 ID-10000，补足5位
+        if (coverId > 10000 && coverId <= 11000) coverId -= 10000
         const dfCoverUrl = `https://www.diving-fish.com/covers/${String(coverId).padStart(5, '0')}.png`
+        // LXNS 曲绘（作为 fallback）
         const lxnsCoverUrl = `https://assets2.lxns.net/maimai/jacket/${songId}.png`
 
-        // Type: DivingFish uses 'DX'/'SD', LXNS uses 'dx'/'standard'
         const rawType = (score.type || '').toLowerCase()
         const isDX = rawType === 'dx'
 
         return {
             id: songId,
             title: score.title || score.song_name || 'Unknown',
-            // Use ds (decimal constant) if available, then level_value (LXNS), then level string
             level: score.ds != null ? String(score.ds) : (score.level_value != null ? String(score.level_value) : score.level || '?'),
             levelIndex: score.level_index ?? 3,
             rating: score.ra || (score.dx_rating != null ? Math.floor(score.dx_rating) : 0),
             score: score.achievements || 0,
             rank: rank,
             image: dfCoverUrl,
+            fallbackImage: lxnsCoverUrl,
             type: isDX ? 'DX' : 'STD',
-            rate: score.rate || 'sss',  // Keep lowercase for rate mapping
+            rate: score.rate || 'sss',
             fc: (score.fc || '').toUpperCase() as any
         }
     }
