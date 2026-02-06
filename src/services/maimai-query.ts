@@ -59,6 +59,7 @@ interface MaimaiQueryConfig {
     divingfishDevToken?: string
     lxnsDevToken?: string
     authToken?: string
+    debug?: boolean
 }
 
 function calculateRating(constant: number, achievement: number): number {
@@ -124,10 +125,17 @@ export class MaimaiQuery extends Service {
         super(ctx, 'maimaiQuery')
         if (config) {
             this.queryConfig = config
+            if (config.debug) {
+                this.ctx.logger('maimai-query').info('[DEBUG] maimai-query 调试模式启用')
+            }
         }
     }
 
-    async getTestData(): Promise<MaimaiB50Data | null> {
+    private logDebug(...args: any[]) {
+        if (this.queryConfig.debug) {
+            this.ctx.logger('maimai-query').info('[DEBUG]', ...args)
+        }
+    }    async getTestData(): Promise<MaimaiB50Data | null> {
         try {
             const data = await this.ctx.http.get<MaimaiB50Data>(DF_TEST_DATA, {
                 headers: { 'User-Agent': this.UA },
@@ -375,14 +383,30 @@ export class MaimaiQuery extends Service {
         error?: string
     }> {
         try {
-            const data = await this.ctx.http.get<MaimaiB50Data>(LXNS_USER_RECORDS, {
-                headers: {
-                    'User-Agent': this.UA,
-                    'Authorization': token
-                },
-                timeout: 15000
-            })
-            return { data: this.normalizeData(data) }
+            const authHeaders = {
+                'User-Agent': this.UA,
+                'Authorization': token
+            }
+
+            // Fetch records + player info in parallel
+            const [recordsResp, playerResp] = await Promise.all([
+                this.ctx.http.get<any>(LXNS_USER_RECORDS, { headers: authHeaders, timeout: 15000 }),
+                this.ctx.http.get<any>('https://maimai.lxns.net/api/v0/user/maimai/player', { headers: authHeaders, timeout: 10000 }).catch(() => null)
+            ])
+
+            const normalized = this.normalizeData(recordsResp)
+
+            // Merge player info
+            const playerInfo = playerResp?.data || playerResp
+            if (playerInfo) {
+                normalized.nickname = normalized.nickname || playerInfo.name
+                normalized.rating = normalized.rating || playerInfo.rating
+                if (playerInfo.icon?.id) {
+                    ;(normalized as any).avatar_url = `https://assets2.lxns.net/maimai/icon/${playerInfo.icon.id}.png`
+                }
+            }
+
+            return { data: normalized }
         } catch (e: any) {
             return { data: null, error: 'LXNS Token query failed' }
         }
@@ -393,15 +417,30 @@ export class MaimaiQuery extends Service {
         error?: string
     }> {
         try {
-            const url = LXNS_PLAYER_BESTS(friendCode)
-            const data = await this.ctx.http.get<MaimaiB50Data>(url, {
-                headers: {
-                    'User-Agent': this.UA,
-                    'Authorization': this.queryConfig.lxnsDevToken!
-                },
-                timeout: 15000
-            })
-            return { data: this.normalizeData(data) }
+            const authHeaders = {
+                'User-Agent': this.UA,
+                'Authorization': this.queryConfig.lxnsDevToken!
+            }
+
+            // Fetch bests + player info in parallel
+            const [bestsResp, playerResp] = await Promise.all([
+                this.ctx.http.get<any>(LXNS_PLAYER_BESTS(friendCode), { headers: authHeaders, timeout: 15000 }),
+                this.ctx.http.get<any>(`${LXNS_BASE}/player/${friendCode}`, { headers: authHeaders, timeout: 10000 }).catch(() => null)
+            ])
+
+            const normalized = this.normalizeData(bestsResp)
+
+            // Merge player info (name, rating, icon for avatar)
+            const playerInfo = playerResp?.data || playerResp
+            if (playerInfo) {
+                normalized.nickname = normalized.nickname || playerInfo.name
+                normalized.rating = normalized.rating || playerInfo.rating
+                if (playerInfo.icon?.id) {
+                    ;(normalized as any).avatar_url = `https://assets2.lxns.net/maimai/icon/${playerInfo.icon.id}.png`
+                }
+            }
+
+            return { data: normalized }
         } catch (e: any) {
             return { data: null, error: e.response?.data?.message || 'LXNS Dev Token 查询失败' }
         }
@@ -468,26 +507,41 @@ export class MaimaiQuery extends Service {
         return results[0] || null
     }
 
-    private normalizeData(data: MaimaiB50Data): MaimaiB50Data {
+    private normalizeData(raw: any): MaimaiB50Data {
+        // Unwrap LXNS response envelope: { success, code, data: {...} }
+        const data = (raw?.success !== undefined || raw?.code !== undefined) && raw?.data && typeof raw.data === 'object' && !Array.isArray(raw.data)
+            ? raw.data
+            : raw
+
+        // DivingFish query/player format: { charts: { dx, sd } }
         if (data.charts?.dx && data.charts?.sd) {
             return data
         }
 
+        // DivingFish player/records format: flat records array
         if (Array.isArray(data.records)) {
-            const dx = data.records.filter(r => (r as any).is_new).slice(0, 15)
-            const sd = data.records.filter(r => !(r as any).is_new).slice(0, 35)
-            return {
-                ...data,
-                charts: { dx, sd }
-            }
+            const dx = data.records.filter((r: any) => r.is_new).slice(0, 15)
+            const sd = data.records.filter((r: any) => !r.is_new).slice(0, 35)
+            return { ...data, charts: { dx, sd } }
         }
 
+        // LXNS bests format: { standard, dx, standard_total, dx_total }
         if (data.standard && data.dx) {
+            // Normalize LXNS score fields to match DivingFish conventions
+            const normalizeLxnsScore = (s: any) => ({
+                ...s,
+                song_id: s.id,
+                title: s.song_name || s.title,
+                ra: s.dx_rating != null ? Math.floor(s.dx_rating) : (s.ra || 0),
+                ds: s.level_value ?? s.ds,
+                type: s.type === 'standard' ? 'SD' : s.type === 'dx' ? 'DX' : (s.type || 'SD'),
+            })
             return {
                 ...data,
+                nickname: data.name || data.nickname,
                 charts: {
-                    dx: data.dx,
-                    sd: data.standard
+                    dx: data.dx.map(normalizeLxnsScore),
+                    sd: data.standard.map(normalizeLxnsScore)
                 }
             }
         }

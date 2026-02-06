@@ -8,7 +8,6 @@ import { ScoreItem } from '../../services/htmlframe'
 export function registerChunithmCommands(ctx: Context, config: MaichuniConfig) {
     const chu = ctx.command('chu', '中二节奏查分指令')
         .usage('使用 chu.b50 查询 Best 50\n使用 chu.calc 计算容错\n使用 chu.alias 管理别名')
-
     // B50 command group
     registerB50Commands(ctx, config)
 
@@ -40,7 +39,7 @@ async function renderB50Image(
     const page = await ctx.puppeteer.page()
     try {
         await page.setViewport({ width: 1600, height: 1000 })
-        await page.setContent(html)
+        await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 })
         const buffer = await page.screenshot({ type: 'jpeg', quality: 90, fullPage: true })
         return h.image(buffer, 'image/jpeg')
     } finally {
@@ -68,7 +67,8 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
 
             if (!data) return '查询失败'
 
-            const b50Data = convertToB50Data(data)
+            const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
+            const b50Data = convertToB50Data(data, qq)
 
             try {
                 return await renderB50Image(ctx, b50Data, 'chunithm')
@@ -94,7 +94,8 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
 
             if (!data) return '查询失败'
 
-            const b50Data = convertToB50Data(data)
+            const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
+            const b50Data = convertToB50Data(data, qq)
             b50Data.n20 = []
 
             try {
@@ -120,7 +121,8 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
 
             if (!data) return '查询失败'
 
-            const b50Data = convertToB50Data(data)
+            const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
+            const b50Data = convertToB50Data(data, qq)
             b50Data.b30 = []
 
             try {
@@ -141,7 +143,8 @@ function registerAjFcCommands(ctx: Context, config: MaichuniConfig) {
             if (result.error) return result.error
             if (!result.data) return '查询失败'
 
-            const b50Data = convertToB50Data(result.data)
+            const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
+            const b50Data = convertToB50Data(result.data, qq)
 
             try {
                 return await renderB50Image(ctx, b50Data, 'chunithm')
@@ -158,7 +161,8 @@ function registerAjFcCommands(ctx: Context, config: MaichuniConfig) {
             if (result.error) return result.error
             if (!result.data) return '查询失败'
 
-            const b50Data = convertToB50Data(result.data)
+            const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
+            const b50Data = convertToB50Data(result.data, qq)
 
             try {
                 return await renderB50Image(ctx, b50Data, 'chunithm')
@@ -309,31 +313,38 @@ function registerAliasCommands(ctx: Context, config: MaichuniConfig) {
 /**
  * Convert API response to HtmlFrame B50Data format for Chunithm
  */
-
-/**
- * Convert API response to HtmlFrame B50Data format for Chunithm
- */
-function convertToB50Data(data: any): import('../../services/htmlframe').B50Data {
+function convertToB50Data(data: any, qq?: string): import('../../services/htmlframe').B50Data {
     const records = data.records || { b30: [], n20: [] }
 
-    const convertScore = (score: any, rank: number): ScoreItem => ({
-        id: score.mid || score.cid || score.id,
-        title: score.title || 'Unknown',
-        level: score.level || score.ds?.toString() || '?',
-        levelIndex: score.level_index ?? 3,
-        rating: Math.floor((score.ra || 0) * 100) / 100,
-        score: score.score || 0,
-        rank: rank,
-        image: `https://www.diving-fish.com/covers/chunithm/${String(score.mid || score.cid || score.id).padStart(4, '0')}.png`,
-        type: 'STD',  // Chunithm doesn't have DX/STD distinction like maimai
-        rate: (score.rate || 'sss').toUpperCase(),
-        fc: formatChunitmFc(score.fc)
-    })
+    const convertScore = (score: any, rank: number): ScoreItem => {
+        // Song ID: DivingFish uses mid/cid, LXNS uses id
+        const songId = score.mid || score.cid || score.id || 0
+        let coverId = parseInt(songId)
+        if (isNaN(coverId)) coverId = 0
+        // Primary: DivingFish, Fallback: LXNS asset
+        const dfCoverUrl = `https://www.diving-fish.com/covers/chunithm/${String(coverId).padStart(4, '0')}.png`
+        const lxnsCoverUrl = `https://assets2.lxns.net/chunithm/music/${songId}.png`
+
+        return {
+            id: songId,
+            title: score.title || score.song_name || 'Unknown',
+            level: score.ds?.toString() || (score.level_value != null ? String(score.level_value) : score.level || '?'),
+            levelIndex: score.level_index ?? 3,
+            rating: Math.floor(((score.ra ?? score.rating) || 0) * 100) / 100,
+            score: score.score || 0,
+            rank: rank,
+            image: dfCoverUrl,
+            type: 'STD',  // Chunithm doesn't have DX/STD distinction like maimai
+            rate: score.rate || score.rank || 'sss',
+            fc: formatChunitmFc(score.fc || score.full_combo)
+        }
+    }
 
     return {
-        playerName: data.nickname || data.username || 'Player',
+        playerName: data.nickname || data.name || data.username || 'Player',
         playerRating: data.rating || 0,
         avatarUrl: data.avatar_url,
+        qq,
         b30: (records.b30 || []).map((s: any, i: number) => convertScore(s, i + 1)),
         n20: (records.n20 || []).map((s: any, i: number) => convertScore(s, i + 1))
     }

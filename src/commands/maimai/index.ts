@@ -40,7 +40,7 @@ async function renderB50Image(
     const page = await ctx.puppeteer.page()
     try {
         await page.setViewport({ width: 1600, height: 1000 })
-        await page.setContent(html)
+        await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 })
         const buffer = await page.screenshot({ type: 'jpeg', quality: 90, fullPage: true })
         return h.image(buffer, 'image/jpeg')
     } finally {
@@ -52,24 +52,28 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
     ctx.command('mai.b50 [username:string]', '查询 Best 50 (B35+B15)')
         .option('test', '-t 使用测试数据')
         .action(async ({ session, options }, username) => {
-            if (!ctx.maimaiQuery) {
+            const maimaiQuery = ctx.maimaiQuery
+            const htmlframe = ctx.htmlframe
+            
+            if (!maimaiQuery) {
                 return '查分服务未初始化'
             }
 
             let data
             if (options?.test) {
-                data = await ctx.maimaiQuery.getTestData()
+                data = await maimaiQuery.getTestData()
                 if (!data) return '获取测试数据失败'
             } else {
-                const result = await ctx.maimaiQuery.getB50(session!, username)
+                const result = await maimaiQuery.getB50(session!, username)
                 if (result.error) return result.error
                 data = result.data
             }
 
             if (!data) return '查询失败'
 
-            // Convert to HtmlFrame format
-            const b50Data = convertToB50Data(data)
+            // Convert to HtmlFrame format - pass QQ for avatar
+            const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
+            const b50Data = convertToB50Data(data, qq)
 
             try {
                 return await renderB50Image(ctx, b50Data, 'maimai')
@@ -82,7 +86,9 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
     ctx.command('mai.b35 [username:string]', '查询 Best 35 (旧曲)')
         .option('test', '-t 使用测试数据')
         .action(async ({ session, options }, username) => {
-            if (!ctx.maimaiQuery) return '查分服务未初始化'
+            const maimaiQuery = ctx.maimaiQuery
+            const htmlframe = ctx.htmlframe
+            if (!maimaiQuery) return '查分服务未初始化'
 
             let data
             if (options?.test) {
@@ -96,7 +102,8 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
             if (!data) return '查询失败'
 
             // Only show B35
-            const b50Data = convertToB50Data(data)
+            const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
+            const b50Data = convertToB50Data(data, qq)
             b50Data.b15 = []
 
             try {
@@ -109,13 +116,15 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
     ctx.command('mai.b15 [username:string]', '查询 Best 15 (新曲)')
         .option('test', '-t 使用测试数据')
         .action(async ({ session, options }, username) => {
-            if (!ctx.maimaiQuery) return '查分服务未初始化'
+            const maimaiQuery = ctx.maimaiQuery
+            const htmlframe = ctx.htmlframe
+            if (!maimaiQuery) return '查分服务未初始化'
 
             let data
             if (options?.test) {
-                data = await ctx.maimaiQuery.getTestData()
+                data = await maimaiQuery.getTestData()
             } else {
-                const result = await ctx.maimaiQuery.getB50(session!, username)
+                const result = await maimaiQuery.getB50(session!, username)
                 if (result.error) return result.error
                 data = result.data
             }
@@ -123,7 +132,8 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
             if (!data) return '查询失败'
 
             // Only show B15
-            const b50Data = convertToB50Data(data)
+            const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
+            const b50Data = convertToB50Data(data, qq)
             b50Data.b35 = []
 
             try {
@@ -143,7 +153,8 @@ function registerApFcCommands(ctx: Context, config: MaichuniConfig) {
             if (result.error) return result.error
             if (!result.data) return '查询失败'
 
-            const b50Data = convertToB50Data(result.data)
+            const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
+            const b50Data = convertToB50Data(result.data, qq)
 
             try {
                 return await renderB50Image(ctx, b50Data, 'maimai')
@@ -160,7 +171,8 @@ function registerApFcCommands(ctx: Context, config: MaichuniConfig) {
             if (result.error) return result.error
             if (!result.data) return '查询失败'
 
-            const b50Data = convertToB50Data(result.data)
+            const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
+            const b50Data = convertToB50Data(result.data, qq)
 
             try {
                 return await renderB50Image(ctx, b50Data, 'maimai')
@@ -307,27 +319,47 @@ function registerAliasCommands(ctx: Context, config: MaichuniConfig) {
 /**
  * Convert API response to HtmlFrame B50Data format
  */
-function convertToB50Data(data: any): import('../../services/htmlframe').B50Data {
+function convertToB50Data(data: any, qq?: string): import('../../services/htmlframe').B50Data {
     const charts = data.charts || { dx: [], sd: [] }
 
-    const convertScore = (score: any, rank: number): ScoreItem => ({
-        id: score.song_id || score.id,
-        title: score.title || 'Unknown',
-        level: score.level || score.ds?.toString() || '?',
-        levelIndex: score.level_index ?? 3,
-        rating: score.ra || 0,
-        score: score.achievements || 0,
-        rank: rank,
-        image: `https://www.diving-fish.com/covers/${String(score.song_id || score.id).padStart(5, '0')}.png`,
-        type: (score.type === 'DX' || score.type === 'dx') ? 'DX' : 'STD',
-        rate: (score.rate || 'sss').toUpperCase(),
-        fc: (score.fc || '').toUpperCase() as any
-    })
+    const convertScore = (score: any, rank: number): ScoreItem => {
+        // Song ID: DivingFish uses song_id, LXNS uses id
+        const songId = score.song_id || score.id || 0
+        // DivingFish cover: ID 10001~11000 uses ID-10000, padded to 5 digits
+        let coverId = parseInt(songId)
+        if (isNaN(coverId)) coverId = 0
+        if (coverId > 10000 && coverId <= 11000) coverId -= 10000
+        // Primary: DivingFish, Fallback: LXNS asset
+        const dfCoverUrl = `https://www.diving-fish.com/covers/${String(coverId).padStart(5, '0')}.png`
+        const lxnsCoverUrl = `https://assets2.lxns.net/maimai/jacket/${songId}.png`
+        // Use encoded URL with fallback: encode LXNS URL as data attribute, swap on error
+        const coverUrl = `${dfCoverUrl}|${lxnsCoverUrl}`
+
+        // Type: DivingFish uses 'DX'/'SD', LXNS uses 'dx'/'standard'
+        const rawType = (score.type || '').toLowerCase()
+        const isDX = rawType === 'dx'
+
+        return {
+            id: songId,
+            title: score.title || score.song_name || 'Unknown',
+            // Use ds (decimal constant) if available, then level_value (LXNS), then level string
+            level: score.ds != null ? String(score.ds) : (score.level_value != null ? String(score.level_value) : score.level || '?'),
+            levelIndex: score.level_index ?? 3,
+            rating: score.ra || (score.dx_rating != null ? Math.floor(score.dx_rating) : 0),
+            score: score.achievements || 0,
+            rank: rank,
+            image: dfCoverUrl,
+            type: isDX ? 'DX' : 'STD',
+            rate: score.rate || 'sss',  // Keep lowercase for rate mapping
+            fc: (score.fc || '').toUpperCase() as any
+        }
+    }
 
     return {
-        playerName: data.nickname || data.username || 'Player',
+        playerName: data.nickname || data.name || data.username || 'Player',
         playerRating: data.rating || 0,
         avatarUrl: data.avatar_url,
+        qq,
         b35: (charts.sd || []).map((s: any, i: number) => convertScore(s, i + 1)),
         b15: (charts.dx || []).map((s: any, i: number) => convertScore(s, i + 1))
     }

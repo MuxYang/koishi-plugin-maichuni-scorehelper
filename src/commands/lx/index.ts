@@ -54,11 +54,19 @@ export function registerLxCommands(ctx: Context, config: MaichuniConfig) {
                 user_id: session.userId
             })
 
-            if (tokens.length === 0 || !tokens[0].lxns_token) {
-                return '❌ 未绑定 lxns Token'
+            if (tokens.length === 0) {
+                return '❌ 未绑定任何信息'
             }
 
-            return '✅ lxns Token 已绑定'
+            const record = tokens[0]
+            const lines: string[] = ['📋 lxns 绑定状态:']
+            lines.push(record.lxns_token ? '✅ Token 已绑定' : '❌ Token 未绑定')
+            lines.push(record.lxns_friend_code ? `✅ 好友码: ${record.lxns_friend_code}` : '❌ 好友码未绑定')
+            if (record.preferred_mode) {
+                lines.push(`📡 当前数据源: ${record.preferred_mode}`)
+            }
+
+            return lines.join('\n')
         })
 
     // lx.unbind - remove binding
@@ -76,6 +84,47 @@ export function registerLxCommands(ctx: Context, config: MaichuniConfig) {
             })
 
             return '✅ 已解除 lxns 绑定'
+        })
+
+    // lx.bindfc - bind lxns friend code
+    ctx.command('lx.bindfc <friendCode:number>', '绑定落雪好友码')
+        .usage('好友码可在落雪查分器个人页面查看')
+        .action(async ({ session }, friendCode) => {
+            if (!session?.userId || !session?.platform) {
+                return '无法获取用户信息'
+            }
+
+            if (!friendCode || friendCode <= 0) {
+                return '请提供有效的好友码\n例: lx.bindfc 123456789'
+            }
+
+            try {
+                // Verify friend code by querying lxns API
+                const response = await fetch(`https://maimai.lxns.net/api/v0/maimai/player/${friendCode}`, {
+                    method: 'GET',
+                    headers: { 'User-Agent': 'Mozilla/5.0' }
+                })
+
+                if (!response.ok) {
+                    return `好友码验证失败: 无法找到该好友码对应的玩家 (HTTP ${response.status})`
+                }
+
+                const playerData = await response.json().catch(() => null)
+                const playerName = playerData?.data?.name || playerData?.name || '未知'
+
+                // Save to database
+                await ctx.database.upsert('user_token', [{
+                    platform: session.platform,
+                    user_id: session.userId,
+                    lxns_friend_code: friendCode,
+                    updated_at: new Date()
+                }], ['platform', 'user_id'])
+
+                return `✅ 好友码绑定成功！\n玩家: ${playerName}\n好友码: ${friendCode}`
+            } catch (e) {
+                ctx.logger('lx.bindfc').error(e)
+                return '绑定失败: 内部错误'
+            }
         })
 
     // lx.enable - switch preferred source

@@ -4579,6 +4579,29 @@
     .x_P_x {
         display: none !important;
     }
+    /* Dark background with light text for B50 card */
+    body {
+        background: #1a1a2e !important;
+        color: #e0e0e0 !important;
+    }
+    .x_Sa_x {
+        background: #1a1a2e !important;
+    }
+    .x_Ve_x {
+        color: #e0e0e0;
+    }
+    /* Section title (B35, B15) */
+    [class~="text-8"] {
+        color: #ffffff !important;
+    }
+    /* Subtitle rating numbers */
+    [class~="text-5"] {
+        color: #c0c0c0 !important;
+    }
+    /* Avatar image fallback */
+    img[src="{avatarUrl}"] {
+        background: #333;
+    }
 </style>
 </head>
 
@@ -4606,8 +4629,8 @@
                                         <div class=text-5>9162</div>
                                         <div class=grow></div> 
                                         <div class="flex items-center">
-                                            <img src="{avatarUrl}" style="height:50px;width:50px;border-radius:50%;margin-right:15px;object-fit:cover">
-                                            <div class="text-5">{playerName} <span style="margin:0 10px">|</span> Rating: {playerRating}</div>
+                                            <img src="{avatarUrl}" style="height:50px;width:50px;border-radius:50%;margin-right:15px;object-fit:cover;background:#333" onerror="this.style.background='#555';this.style.border='2px solid #666'">
+                                            <div class="text-5" style="color:#e0e0e0">{playerName} <span style="margin:0 10px">|</span> Rating: {playerRating}</div>
                                         </div>
                                     </div>
                                     <div

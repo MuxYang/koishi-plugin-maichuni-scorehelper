@@ -51,6 +51,7 @@ interface ChunithmQueryConfig {
     divingfishDevToken?: string
     lxnsDevToken?: string
     authToken?: string
+    debug?: boolean
 }
 
 /**
@@ -126,6 +127,15 @@ export class ChunithmQuery extends Service {
         super(ctx, 'chunithmQuery')
         if (config) {
             this.queryConfig = config
+            if (config.debug) {
+                this.ctx.logger('chunithm-query').info('[DEBUG] chunithm-query 调试模式启用')
+            }
+        }
+    }
+
+    private logDebug(...args: any[]) {
+        if (this.queryConfig.debug) {
+            this.ctx.logger('chunithm-query').info('[DEBUG]', ...args)
         }
     }
 
@@ -382,14 +392,30 @@ export class ChunithmQuery extends Service {
         error?: string
     }> {
         try {
-            const data = await this.ctx.http.get<ChunithmB50Data>(LXNS_USER_RECORDS, {
-                headers: {
-                    'User-Agent': this.UA,
-                    'Authorization': token
-                },
-                timeout: 15000
-            })
-            return { data: this.normalizeData(data) }
+            const authHeaders = {
+                'User-Agent': this.UA,
+                'Authorization': token
+            }
+
+            // Fetch records + player info in parallel
+            const [recordsResp, playerResp] = await Promise.all([
+                this.ctx.http.get<any>(LXNS_USER_RECORDS, { headers: authHeaders, timeout: 15000 }),
+                this.ctx.http.get<any>('https://maimai.lxns.net/api/v0/user/chunithm/player', { headers: authHeaders, timeout: 10000 }).catch(() => null)
+            ])
+
+            const normalized = this.normalizeData(recordsResp)
+
+            // Merge player info
+            const playerInfo = playerResp?.data || playerResp
+            if (playerInfo) {
+                normalized.nickname = normalized.nickname || playerInfo.name
+                normalized.rating = normalized.rating || playerInfo.rating
+                if (playerInfo.character?.id) {
+                    ;(normalized as any).avatar_url = `https://assets2.lxns.net/chunithm/character/${playerInfo.character.id}.png`
+                }
+            }
+
+            return { data: normalized }
         } catch (e: any) {
             return { data: null, error: 'LXNS Token query failed' }
         }
@@ -400,15 +426,30 @@ export class ChunithmQuery extends Service {
         error?: string
     }> {
         try {
-            const url = LXNS_PLAYER_BESTS(friendCode)
-            const data = await this.ctx.http.get<ChunithmB50Data>(url, {
-                headers: {
-                    'User-Agent': this.UA,
-                    'Authorization': this.queryConfig.lxnsDevToken!
-                },
-                timeout: 15000
-            })
-            return { data: this.normalizeData(data) }
+            const authHeaders = {
+                'User-Agent': this.UA,
+                'Authorization': this.queryConfig.lxnsDevToken!
+            }
+
+            // Fetch bests + player info in parallel
+            const [bestsResp, playerResp] = await Promise.all([
+                this.ctx.http.get<any>(LXNS_PLAYER_BESTS(friendCode), { headers: authHeaders, timeout: 15000 }),
+                this.ctx.http.get<any>(`${LXNS_BASE}/player/${friendCode}`, { headers: authHeaders, timeout: 10000 }).catch(() => null)
+            ])
+
+            const normalized = this.normalizeData(bestsResp)
+
+            // Merge player info
+            const playerInfo = playerResp?.data || playerResp
+            if (playerInfo) {
+                normalized.nickname = normalized.nickname || playerInfo.name
+                normalized.rating = normalized.rating || playerInfo.rating
+                if (playerInfo.character?.id) {
+                    ;(normalized as any).avatar_url = `https://assets2.lxns.net/chunithm/character/${playerInfo.character.id}.png`
+                }
+            }
+
+            return { data: normalized }
         } catch (e: any) {
             return { data: null, error: e.response?.data?.message || 'LXNS Dev Token 查询失败' }
         }
@@ -475,16 +516,38 @@ export class ChunithmQuery extends Service {
         return results[0] || null
     }
 
-    private normalizeData(data: ChunithmB50Data): ChunithmB50Data {
-        // Ensure records structure exists
-        if (!data.records) {
-            data.records = {
-                b30: data.bests || [],
-                n20: data.new_bests || [],
-                r10: []
-            }
+    private normalizeData(raw: any): ChunithmB50Data {
+        // Unwrap LXNS response envelope: { success, code, data: {...} }
+        const data = (raw?.success !== undefined || raw?.code !== undefined) && raw?.data && typeof raw.data === 'object' && !Array.isArray(raw.data)
+            ? raw.data
+            : raw
+
+        // Already has records (DivingFish format)
+        if (data.records?.b30) {
+            return data
         }
-        return data
+
+        // LXNS bests format: { bests, selections, new_bests }
+        // Normalize LXNS score fields to match DivingFish conventions
+        const normalizeLxnsScore = (s: any) => ({
+            ...s,
+            mid: s.id,
+            title: s.song_name || s.title,
+            ra: s.rating ?? s.ra ?? 0,
+            ds: s.level_value ?? s.ds,
+            fc: s.full_combo || s.fc,
+            rate: s.rank || s.rate,
+        })
+
+        const b30 = (data.bests || []).map(normalizeLxnsScore)
+        const n20 = (data.new_bests || []).map(normalizeLxnsScore)
+        const r10 = (data.selections || []).map(normalizeLxnsScore)
+
+        return {
+            ...data,
+            nickname: data.name || data.nickname,
+            records: { b30, n20, r10 }
+        }
     }
 
     /**
