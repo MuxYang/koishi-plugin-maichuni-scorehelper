@@ -219,7 +219,13 @@ export class MaimaiQuery extends Service {
                 if (res.error) return res
             }
 
-            return { data: null, error: 'LXNS: 未绑定 Token' }
+            // 3. Public LXNS API (fallback) - if user explicitly chose LXNS and has QQ
+            if (qq) {
+                const res = await this.queryPublicLxnsByQQ(qq)
+                if (res.data) return res
+            }
+
+            return { data: null, error: 'LXNS: 无法确定查询目标' }
         }
 
         // --- Selection Logic ---
@@ -258,9 +264,15 @@ export class MaimaiQuery extends Service {
             if (res.data) return res
         }
 
-        // 5. Public
+        // 5. Public (DivingFish + LXNS QQ fallback)
         if (qq || username) {
-            return this.queryPublic(username, qq)
+            const res = await this.queryPublic(username, qq)
+            if (res.data) return res
+            // If DivingFish public failed and we have QQ, try LXNS public
+            if (qq && !username) {
+                return this.queryPublicLxnsByQQ(qq)
+            }
+            return res
         }
 
         return { data: null, error: '无法确定查询目标，请提供用户名或绑定QQ' }
@@ -496,6 +508,61 @@ export class MaimaiQuery extends Service {
                 return { data: null, error: '该用户已设置隐私或未同意用户协议' }
             }
             return { data: null, error: msg || '查询失败' }
+        }
+    }
+
+    private async queryPublicLxnsByQQ(qq: string): Promise<{
+        data: MaimaiB50Data | null
+        error?: string
+    }> {
+        try {
+            // Resolve QQ → friend_code via lxns public API (no auth needed)
+            const playerUrl = `${LXNS_BASE}/player/qq/${qq}`
+            const playerData = await this.ctx.http.get<any>(playerUrl, {
+                headers: {
+                    'User-Agent': this.UA
+                },
+                timeout: 15000
+            })
+
+            const friendCode = playerData?.data?.friend_code || playerData?.friend_code
+            if (!friendCode) {
+                return { data: null, error: 'LXNS: 未找到该 QQ 对应的玩家' }
+            }
+
+            // Query bests with friend_code via public API
+            const bestsUrl = LXNS_PLAYER_BESTS(friendCode)
+            const bestsResp = await this.ctx.http.get<any>(bestsUrl, {
+                headers: {
+                    'User-Agent': this.UA
+                },
+                timeout: 15000
+            })
+
+            // Get player info for name and rating
+            const playerInfoUrl = `${LXNS_BASE}/player/${friendCode}`
+            const playerInfoResp = await this.ctx.http.get<any>(playerInfoUrl, {
+                headers: {
+                    'User-Agent': this.UA
+                },
+                timeout: 10000
+            }).catch(() => null)
+
+            const normalized = this.normalizeData(bestsResp)
+
+            // Merge player info
+            const playerInfo = playerInfoResp?.data || playerInfoResp
+            if (playerInfo) {
+                normalized.nickname = normalized.nickname || playerInfo.name
+                normalized.rating = normalized.rating || playerInfo.rating
+                if (playerInfo.icon?.id) {
+                    ;(normalized as any).avatar_url = `https://assets2.lxns.net/maimai/icon/${playerInfo.icon.id}.png`
+                }
+            }
+
+            return { data: normalized }
+        } catch (e: any) {
+            return { data: null, error: e.response?.data?.message || 'LXNS: QQ 查询失败' }
         }
     }
 
