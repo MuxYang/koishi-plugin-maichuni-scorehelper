@@ -38,7 +38,10 @@ export function apply(ctx: Context, config: MaichuniConfig) {
   registerTables(ctx)
 
   // Register services
-  ctx.plugin(MaimaiStatus, config.statusMonitor)
+  // MaimaiStatus with debug flag
+  ctx.plugin((ctx) => {
+    return new MaimaiStatus(ctx, config.statusMonitor, config.debug)
+  })
   ctx.plugin(HtmlFrame)
   ctx.plugin(AliasManager)
   ctx.plugin(SongDataManager)

@@ -528,14 +528,22 @@ export class MaimaiQuery extends Service {
         // LXNS bests format: { standard, dx, standard_total, dx_total }
         if (data.standard && data.dx) {
             // Normalize LXNS score fields to match DivingFish conventions
-            const normalizeLxnsScore = (s: any) => ({
-                ...s,
-                song_id: s.id,
-                title: s.song_name || s.title,
-                ra: s.dx_rating != null ? Math.floor(s.dx_rating) : (s.ra || 0),
-                ds: s.level_value ?? s.ds,
-                type: s.type === 'standard' ? 'SD' : s.type === 'dx' ? 'DX' : (s.type || 'SD'),
-            })
+            const normalizeLxnsScore = (s: any) => {
+                // LXNS: 同一首曲目的标准、DX 谱面的曲目 ID 一致，不存在大于 10000 的曲目 ID
+                // 如有大于 10000 的 ID，需要对 10000 取余处理
+                let songId = s.id
+                if (songId > 10000) {
+                    songId = songId % 10000
+                }
+                return {
+                    ...s,
+                    song_id: songId,
+                    title: s.song_name || s.title,
+                    ra: s.dx_rating != null ? Math.floor(s.dx_rating) : (s.ra || 0),
+                    ds: s.level_value ?? s.ds,
+                    type: s.type === 'standard' ? 'SD' : s.type === 'dx' ? 'DX' : (s.type || 'SD'),
+                }
+            }
             return {
                 ...data,
                 nickname: data.name || data.nickname,

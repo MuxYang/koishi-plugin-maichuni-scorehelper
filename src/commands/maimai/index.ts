@@ -323,17 +323,17 @@ function convertToB50Data(data: any, qq?: string): import('../../services/htmlfr
     const charts = data.charts || { dx: [], sd: [] }
 
     const convertScore = (score: any, rank: number): ScoreItem => {
-        // Song ID: DivingFish uses song_id, LXNS uses id
+        // Song ID: 规范化后的 ID（LXNS 中已对 10000 取余，DivingFish 直接返回）
         const songId = score.song_id || score.id || 0
-        // DivingFish cover: ID 10001~11000 uses ID-10000, padded to 5 digits (per DivingFish API docs)
-        let coverId = parseInt(songId)
-        if (isNaN(coverId)) coverId = 0
-        if (coverId > 10000 && coverId <= 11000) coverId -= 10000
+        
+        // DivingFish cover: ID 10001~11000 使用 ID-10000 来访问覆盖
+        // 但由于 LXNS API 已经处理了 ID，规范化后的 songId 都应该 < 10000
+        // 所以这里直接用规范化后的 songId
+        const coverId = Math.max(1, parseInt(songId) || 0)
+        
         // Primary: DivingFish, Fallback: LXNS asset
         const dfCoverUrl = `https://www.diving-fish.com/covers/${String(coverId).padStart(5, '0')}.png`
         const lxnsCoverUrl = `https://assets2.lxns.net/maimai/jacket/${songId}.png`
-        // Use encoded URL with fallback: encode LXNS URL as data attribute, swap on error
-        const coverUrl = `${dfCoverUrl}|${lxnsCoverUrl}`
 
         // Type: DivingFish uses 'DX'/'SD', LXNS uses 'dx'/'standard'
         const rawType = (score.type || '').toLowerCase()

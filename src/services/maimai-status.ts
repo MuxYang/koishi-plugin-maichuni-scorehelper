@@ -110,7 +110,6 @@ export interface Config {
   otherSource?: OtherSourceConfig
   enablePush: boolean
   pushTargets?: string[]
-  debug?: boolean
 }
 
 export const Config: Schema<Config> = Schema.intersect([
@@ -177,11 +176,6 @@ export const Config: Schema<Config> = Schema.intersect([
       enablePush: Schema.const(false),
     }),
   ]),
-
-  // 高级设置
-  Schema.object({
-    debug: Schema.boolean().default(false).description('开启调试日志'),
-  }).description('高级设置'),
 ])
 
 interface MonitorItem {
@@ -223,10 +217,12 @@ export class MaimaiStatus extends Service {
   private cachedServiceNames: CachedServiceNames = {}
   private readonly UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
   private locale: string = 'zh-CN'
+  private debugEnabled: boolean = false
 
-  constructor(ctx: Context, public config: Config) {
+  constructor(ctx: Context, public config: Config, debugEnabled?: boolean) {
     super(ctx, 'maimaiStatus')
     this.statusLogger = ctx.logger('maimai-status')
+    this.debugEnabled = debugEnabled ?? false
   }
 
   private t(key: string): string {
@@ -234,7 +230,7 @@ export class MaimaiStatus extends Service {
   }
 
   private logDebug(...args: any[]) {
-    if (!this.config.debug) return
+    if (!this.debugEnabled) return
     this.statusLogger.info('[debug]', ...args)
   }
 
@@ -459,7 +455,7 @@ export class MaimaiStatus extends Service {
         timeout: 15000
       })
 
-      if (this.config.debug) {
+      if (this.debugEnabled) {
         const contentStr = typeof data === 'string' ? data : JSON.stringify(data)
         this.logDebug(`Other source response: ${contentStr.slice(0, 50)}`)
       }
@@ -800,7 +796,7 @@ export class MaimaiStatus extends Service {
         timeout: 15000
       })
 
-      if (this.config.debug) {
+      if (this.debugEnabled) {
         const contentStr = typeof data === 'string' ? data : JSON.stringify(data)
         this.logDebug(`Heartbeat response: ${contentStr.slice(0, 50)}`)
       }
@@ -914,7 +910,7 @@ export class MaimaiStatus extends Service {
       group.lastNotifiedStatus = targetStatus
       group.statusHistory = []
     } else {
-      if (this.config.debug) {
+      if (this.debugEnabled) {
         this.logDebug(`${this.t('window-not-ready')}: ${groupName} ${Math.round(windowDuration / 1000)}s < ${STATUS_WINDOW_MS / 1000}s`)
       }
     }

@@ -14,8 +14,8 @@ export class ImageCacheManager extends Service {
 
     constructor(ctx: Context) {
         super(ctx, 'imagecache')
-        // 使用 Koishi 的 DataDirectory
-        this.cacheDir = path.join(ctx.baseDir, 'cache', 'maichuni-images')
+        // 使用 Koishi 的数据目录
+        this.cacheDir = path.join(ctx.baseDir, 'data', 'maichuni-scorehelper', 'imgcache')
     }
 
     protected async start() {
@@ -120,9 +120,14 @@ export class ImageCacheManager extends Service {
                 if (!item) break
 
                 const key = `${item.source}-${item.id}`
-                const url = await this.downloadImage(item.url, item.source, item.id)
-                if (url) {
-                    results.set(key, url)
+                try {
+                    const url = await this.downloadImage(item.url, item.source, item.id)
+                    if (url) {
+                        results.set(key, url)
+                    }
+                } catch (error) {
+                    // 单个下载失败不影响其他下载
+                    this.ctx.logger('imagecache').debug(`并发下载异常 [${key}]: ${error instanceof Error ? error.message : String(error)}`)
                 }
             }
         }
@@ -153,16 +158,16 @@ export class ImageCacheManager extends Service {
                 if (age > maxAgeMs) {
                     await fs.unlink(filePath)
                     cleaned++
-                    this.logger.debug(`清理过期缓存: ${file}`)
+                    this.ctx.logger('imagecache').debug(`清理过期缓存: ${file}`)
                 }
             }
 
             if (cleaned > 0) {
-                this.logger.info(`清理过期缓存: ${cleaned} 个文件`)
+                this.ctx.logger('imagecache').info(`清理过期缓存: ${cleaned} 个文件`)
             }
             return cleaned
         } catch (error) {
-            this.logger.error(`清理缓存时出错:`, error)
+            this.ctx.logger('imagecache').error(`清理缓存时出错:`, error)
             return 0
         }
     }
