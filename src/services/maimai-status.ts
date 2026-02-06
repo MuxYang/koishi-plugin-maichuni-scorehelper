@@ -247,24 +247,29 @@ export class MaimaiStatus extends Service {
       .alias('maimai-status')
       .action(async () => {
         this.lastManualQueryTime = Date.now()
-        return await this.getStatusSummary()
+        // 手动更新：始终先请求 API，再根据 ID 判断是否需要请求 web，然后返回状态摘要
+        await this.checkTask()
+        return await this.getStatusSummary(false) // false = 不再重复调用 checkTask
       })
 
-    if (this.config.enablePush && this.validatePushTargets()) {
-      // 确定检查间隔
-      let intervalMs: number
-      if (this.config.dataSource === 'awmc') {
-        intervalMs = API_INTERVAL_MS // AWMC 固定 10 分钟
-      } else {
-        const checkInterval = this.config.otherSource?.checkInterval ?? 600
-        intervalMs = checkInterval * 1000
-      }
+    // 确定检查间隔
+    let intervalMs: number
+    if (this.config.dataSource === 'awmc') {
+      intervalMs = API_INTERVAL_MS // AWMC 固定 10 分钟
+    } else {
+      const checkInterval = this.config.otherSource?.checkInterval ?? 600
+      intervalMs = checkInterval * 1000
+    }
 
-      this.checkTask()
-      if (intervalMs > 0) {
-        this.timer = setInterval(() => this.checkTask(), intervalMs)
-        this.logDebug(`定时检查已启动，间隔: ${intervalMs / 1000}s`)
-      }
+    // 即使推送关闭，也保持每小时至少请求一次 API 以同步数据
+    const backgroundIntervalMs = this.config.enablePush && this.validatePushTargets()
+      ? intervalMs
+      : Math.max(intervalMs, 3600 * 1000) // 推送关闭时，至少每小时同步一次
+
+    this.checkTask()
+    if (backgroundIntervalMs > 0) {
+      this.timer = setInterval(() => this.checkTask(), backgroundIntervalMs)
+      this.logDebug(`定时检查已启动，间隔: ${backgroundIntervalMs / 1000}s`)
     }
   }
 
@@ -315,8 +320,14 @@ export class MaimaiStatus extends Service {
     return presetNames[otherSource.preset] || otherSource.preset
   }
 
-  public async getStatusSummary(): Promise<string> {
-    await this.checkTask()
+  /**
+   * 获取状态摘要
+   * @param shouldFetch 是否需要先获取数据，默认为 true
+   */
+  public async getStatusSummary(shouldFetch: boolean = true): Promise<string> {
+    if (shouldFetch) {
+      await this.checkTask()
+    }
 
     if (this.groups.size === 0) {
       return this.t('no-data')
@@ -628,7 +639,7 @@ export class MaimaiStatus extends Service {
         name: item.name,
         updated_at: new Date()
       }))
-      await this.ctx.database.upsert('maimai_monitor_name', rows)
+      await this.ctx.database.upsert('maimai_monitor_name', rows, ['source', 'monitor_id'])
     } catch (e) {
       this.statusLogger.warn(this.t('save-cache-failed'), e)
     }

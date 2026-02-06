@@ -34,6 +34,8 @@ declare module 'koishi' {
     }
 }
 
+
+
 const SCORE_TEMPLATE = `
 <div class="grid rows-[1.75rem_1fr] rd-2xl of-hidden min-w-220px hover:scale-102 transition-transform-200 transition-ease will-change-transform x_-c_x">
     <div class="text-ellipsis of-hidden ws-nowrap flex items-center" style="background:var(--level-{levelIndex})">

@@ -6,11 +6,77 @@ export default {
         'maimai-status': {
             description: 'View Maimai DX server status'
         },
-        maib50test: {
-            description: 'Test generating MaiMai B50 score card image'
+        mai: {
+            description: 'Maimai DX score query commands'
         },
-        chub50test: {
-            description: 'Test generating Chunithm B50 score card image'
+        'mai.b50': {
+            description: 'Query Best 50 (B35+B15)'
+        },
+        'mai.b35': {
+            description: 'Query Best 35 (old charts)'
+        },
+        'mai.b15': {
+            description: 'Query Best 15 (new charts)'
+        },
+        'mai.ap50': {
+            description: 'Query AP50 scores (All Perfect)'
+        },
+        'mai.fc50': {
+            description: 'Query FC50 scores (Full Combo)'
+        },
+        'mai.calc': {
+            description: 'Calculate tolerance for target achievement'
+        },
+        'mai.alias': {
+            description: 'Alias management'
+        },
+        'mai.alias.add': {
+            description: 'Add local alias'
+        },
+        'mai.alias.delete': {
+            description: 'Delete local alias'
+        },
+        'mai.alias.list': {
+            description: 'View alias list'
+        },
+        'mai.bind': {
+            description: 'Bind Import Token'
+        },
+        chu: {
+            description: 'Chunithm score query commands'
+        },
+        'chu.b50': {
+            description: 'Query Best 50 (B30+N20)'
+        },
+        'chu.b30': {
+            description: 'Query Best 30 (old charts)'
+        },
+        'chu.n20': {
+            description: 'Query New 20 (new charts)'
+        },
+        'chu.aj50': {
+            description: 'Query AJ50 scores (All Justice)'
+        },
+        'chu.fc50': {
+            description: 'Query FC50 scores (Full Combo)'
+        },
+        'chu.calc': {
+            description: 'Calculate tolerance for target score'
+        },
+        'chu.alias': {
+            description: 'Alias management'
+        },
+        'chu.alias.add': {
+            description: 'Add local alias'
+        },
+        'chu.alias.delete': {
+            description: 'Delete local alias'
+        },
+        'chu.alias.list': {
+            description: 'View alias list'
+        },
+        'chu.bind': {
+            description: 'Bind Import Token'
         }
     },
     'status-monitor': {

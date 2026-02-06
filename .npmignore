@@ -1,0 +1,37 @@
+# Node.js dependencies
+node_modules/
+dist/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE settings
+.vscode/
+.idea/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Cache files
+monitor_cache.json
+.cache/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Build artifacts
+build/
+coverage/
+docs/
+res/
+fish-login-page/

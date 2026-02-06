@@ -1,0 +1,13 @@
+{
+    "version": 1,
+    "routes": [
+        {
+            "src": "/api/generate-token",
+            "dest": "/api/generate-token"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "/index.html"
+        }
+    ]
+}

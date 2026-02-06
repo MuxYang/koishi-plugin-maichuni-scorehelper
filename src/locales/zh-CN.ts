@@ -6,11 +6,77 @@ export default {
         'maimai-status': {
             description: '查看舞萌 DX 服务器状态'
         },
-        maib50test: {
-            description: '测试生成 MaiMai B50 成绩单图片'
+        mai: {
+            description: '舞萌 DX 查分指令'
         },
-        chub50test: {
-            description: '测试生成 Chunithm B50 成绩单图片'
+        'mai.b50': {
+            description: '查询 Best 50 (B35+B15)'
+        },
+        'mai.b35': {
+            description: '查询 Best 35 (旧曲)'
+        },
+        'mai.b15': {
+            description: '查询 Best 15 (新曲)'
+        },
+        'mai.ap50': {
+            description: '查询 AP50 成绩 (All Perfect)'
+        },
+        'mai.fc50': {
+            description: '查询 FC50 成绩 (Full Combo)'
+        },
+        'mai.calc': {
+            description: '计算达成目标分数的容错'
+        },
+        'mai.alias': {
+            description: '别名管理'
+        },
+        'mai.alias.add': {
+            description: '添加本地别名'
+        },
+        'mai.alias.delete': {
+            description: '删除本地别名'
+        },
+        'mai.alias.list': {
+            description: '查看别名列表'
+        },
+        'mai.bind': {
+            description: '绑定 Import Token'
+        },
+        chu: {
+            description: '中二节奏查分指令'
+        },
+        'chu.b50': {
+            description: '查询 Best 50 (B30+N20)'
+        },
+        'chu.b30': {
+            description: '查询 Best 30 (旧曲)'
+        },
+        'chu.n20': {
+            description: '查询 New 20 (新曲)'
+        },
+        'chu.aj50': {
+            description: '查询 AJ50 成绩 (All Justice)'
+        },
+        'chu.fc50': {
+            description: '查询 FC50 成绩 (Full Combo)'
+        },
+        'chu.calc': {
+            description: '计算达成目标分数的容错'
+        },
+        'chu.alias': {
+            description: '别名管理'
+        },
+        'chu.alias.add': {
+            description: '添加本地别名'
+        },
+        'chu.alias.delete': {
+            description: '删除本地别名'
+        },
+        'chu.alias.list': {
+            description: '查看别名列表'
+        },
+        'chu.bind': {
+            description: '绑定 Import Token'
         }
     },
     'status-monitor': {
