@@ -6,6 +6,7 @@ import { ScoreItem as MaimaiScoreItem, B50Data as MaimaiB50HtmlData } from '../.
  * Register all maimai commands
  */
 export function registerMaimaiCommands(ctx: Context, config: MaichuniConfig) {
+    return ctx.inject(['maimaiQuery', 'htmlframe', 'songDataManager', 'aliasManager', 'puppeteer'], (ctx) => {
     const mai = ctx.command('mai', '舞萌 DX 查分指令')
         .usage('使用 mai.b50 查询 Best 50\n使用 mai.calc 计算容错\n使用 mai.alias 管理别名')
 
@@ -20,8 +21,7 @@ export function registerMaimaiCommands(ctx: Context, config: MaichuniConfig) {
 
     // Alias management
     registerAliasCommands(ctx, config)
-
-
+    })
 }
 
 /**

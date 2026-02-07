@@ -6,6 +6,7 @@ import { ScoreItem as ChunithmScoreItem, B50Data as ChunithmB50HtmlData } from '
  * Register all chunithm commands
  */
 export function registerChunithmCommands(ctx: Context, config: MaichuniConfig) {
+    return ctx.inject(['chunithmQuery', 'htmlframe', 'songDataManager', 'aliasManager', 'puppeteer'], (ctx) => {
     const chu = ctx.command('chu', '中二节奏查分指令')
         .usage('使用 chu.b50 查询 Best 50\n使用 chu.calc 计算容错\n使用 chu.alias 管理别名')
     // B50 command group
@@ -19,8 +20,7 @@ export function registerChunithmCommands(ctx: Context, config: MaichuniConfig) {
 
     // Alias management
     registerAliasCommands(ctx, config)
-
-
+    })
 }
 
 /**
