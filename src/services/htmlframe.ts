@@ -131,10 +131,7 @@ export class HtmlFrame extends Service {
         let html = this.templates['maimai']
         const cache = this.ctx.imagecache
 
-        // 处理头像
-        let avatarUrl = await this.processAvatarUrl(data, cache)
-
-        // 批量下载舞萌曲绘
+        // 批量下载舞萌曲绘和头像（在处理前完成所有下载）
         if (cache && data.b35 && data.b15) {
             const imagesToDownload: Array<{ urls: string | string[]; source: string; id: string | number }> = []
 
@@ -149,10 +146,32 @@ export class HtmlFrame extends Service {
                 })
             }
 
+            // 添加头像下载
+            if (data.qq) {
+                const qqAvatarRemote = `http://q.qlogo.cn/headimg_dl?dst_uin=${data.qq}&spec=640&img_type=jpg`
+                imagesToDownload.push({
+                    urls: qqAvatarRemote,
+                    source: 'qq',
+                    id: data.qq
+                })
+            } else if (data.avatarUrl && data.avatarUrl.includes('lxns')) {
+                const lxnsMatch = data.avatarUrl.match(/icon\/(\d+)\.png/)
+                if (lxnsMatch) {
+                    imagesToDownload.push({
+                        urls: data.avatarUrl,
+                        source: 'lxns-icon',
+                        id: lxnsMatch[1]
+                    })
+                }
+            }
+
             if (imagesToDownload.length > 0) {
                 await cache.downloadImagesParallel(imagesToDownload, 5)
             }
         }
+
+        // 处理头像（此时已缓存）
+        let avatarUrl = await this.processAvatarUrl(data, cache)
 
         // 替换占位符
         html = html.replace('{playerName}', data.playerName)
@@ -183,10 +202,7 @@ export class HtmlFrame extends Service {
         let html = this.templates['chunithm']
         const cache = this.ctx.imagecache
 
-        // 处理头像
-        let avatarUrl = await this.processAvatarUrl(data, cache)
-
-        // 批量下载中二节奏曲绘
+        // 批量下载中二节奏曲绘和头像（在处理前完成所有下载）
         if (cache && data.b30 && data.n20) {
             const imagesToDownload: Array<{ urls: string | string[]; source: string; id: string | number }> = []
 
@@ -201,10 +217,32 @@ export class HtmlFrame extends Service {
                 })
             }
 
+            // 添加头像下载
+            if (data.qq) {
+                const qqAvatarRemote = `http://q.qlogo.cn/headimg_dl?dst_uin=${data.qq}&spec=640&img_type=jpg`
+                imagesToDownload.push({
+                    urls: qqAvatarRemote,
+                    source: 'qq',
+                    id: data.qq
+                })
+            } else if (data.avatarUrl && data.avatarUrl.includes('lxns')) {
+                const lxnsMatch = data.avatarUrl.match(/icon\/(\d+)\.png/)
+                if (lxnsMatch) {
+                    imagesToDownload.push({
+                        urls: data.avatarUrl,
+                        source: 'lxns-icon',
+                        id: lxnsMatch[1]
+                    })
+                }
+            }
+
             if (imagesToDownload.length > 0) {
                 await cache.downloadImagesParallel(imagesToDownload, 5)
             }
         }
+
+        // 处理头像（此时已缓存）
+        let avatarUrl = await this.processAvatarUrl(data, cache)
 
         // 替换占位符
         html = html.replace('{playerName}', data.playerName)
@@ -236,44 +274,37 @@ export class HtmlFrame extends Service {
 
     /**
      * 处理头像 URL（通用逻辑）
+     * 仅使用本地缓存，不使用网络 URL
      */
     private async processAvatarUrl(data: B50Data, cache: any): Promise<string> {
-        if (data.qq) {
-            const qqAvatarRemote = `http://q.qlogo.cn/headimg_dl?dst_uin=${data.qq}&spec=640&img_type=jpg`
-            if (cache) {
+        if (data.qq && cache) {
+            try {
+                if (await cache.exists('qq', data.qq)) {
+                    const cachePath = cache.getCachePath('qq', data.qq)
+                    const buffer = await fs.readFile(cachePath)
+                    return `data:image/jpeg;base64,${buffer.toString('base64')}`
+                }
+            } catch (e) {
+                this.ctx.logger('htmlframe').warn(`QQ 头像缓存读取失败: ${e}`)
+            }
+        }
+
+        if (data.avatarUrl && cache && data.avatarUrl.includes('lxns')) {
+            const lxnsMatch = data.avatarUrl.match(/icon\/(\d+)\.png/)
+            if (lxnsMatch) {
                 try {
-                    const result = await cache.downloadImage(qqAvatarRemote, 'qq', data.qq, 5000)
-                    if (result) {
-                        const cachePath = cache.getCachePath('qq', data.qq)
+                    if (await cache.exists('lxns-icon', lxnsMatch[1])) {
+                        const cachePath = cache.getCachePath('lxns-icon', lxnsMatch[1])
                         const buffer = await fs.readFile(cachePath)
-                        return `data:image/jpeg;base64,${buffer.toString('base64')}`
+                        return `data:image/png;base64,${buffer.toString('base64')}`
                     }
                 } catch (e) {
-                    // fallback to remote
+                    this.ctx.logger('htmlframe').warn(`LXNS 头像缓存读取失败: ${e}`)
                 }
             }
-            return qqAvatarRemote
         }
 
-        if (data.avatarUrl) {
-            if (cache && data.avatarUrl.includes('lxns')) {
-                const lxnsMatch = data.avatarUrl.match(/icon\/(\d+)\.png/)
-                if (lxnsMatch) {
-                    try {
-                        const result = await cache.downloadImage(data.avatarUrl, 'lxns-icon', lxnsMatch[1], 5000)
-                        if (result) {
-                            const cachePath = cache.getCachePath('lxns-icon', lxnsMatch[1])
-                            const buffer = await fs.readFile(cachePath)
-                            return `data:image/png;base64,${buffer.toString('base64')}`
-                        }
-                    } catch (e) {
-                        // fallback to remote
-                    }
-                }
-            }
-            return data.avatarUrl
-        }
-
+        // 都无可用头像，返回空字符串而不是网络 URL
         return ''
     }
 
@@ -284,18 +315,23 @@ export class HtmlFrame extends Service {
         const typeClass = item.type === 'DX' ? 'c-#F16449' : 'c-#6EA7E1'
         const cache = this.ctx.imagecache
 
-        // 处理图片：优先使用本地缓存
-        let displayUrl = item.image
+        // 处理图片：优先使用本地缓存的 base64 数据
+        let displayUrl = ''
         if (cache && item.id) {
-            const cachePath = cache.getCachePath('maimai', item.id)
             if (await cache.exists('maimai', item.id)) {
                 try {
+                    const cachePath = cache.getCachePath('maimai', item.id)
                     const buffer = await fs.readFile(cachePath)
                     displayUrl = `data:image/png;base64,${buffer.toString('base64')}`
                 } catch (e) {
-                    displayUrl = item.image
+                    this.ctx.logger('htmlframe').warn(`舞萌曲绘 ${item.id} 读取失败，使用占位图`)
                 }
             }
+        }
+        
+        // 如果没有本地缓存，使用灰色占位图而不是网络 URL
+        if (!displayUrl) {
+            displayUrl = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYwIiBoZWlnaHQ9IjE2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTYwIiBoZWlnaHQ9IjE2MCIgZmlsbD0iI2VlZSIvPjwvc3ZnPg=='
         }
 
         // 舞萌成绩显示（百分比）
@@ -349,18 +385,23 @@ export class HtmlFrame extends Service {
         const typeClass = 'c-#6EA7E1'  // Chunithm is always STD type
         const cache = this.ctx.imagecache
 
-        // 处理图片：优先使用本地缓存
-        let displayUrl = item.image
+        // 处理图片：优先使用本地缓存的 base64 数据
+        let displayUrl = ''
         if (cache && item.id) {
-            const cachePath = cache.getCachePath('chunithm', item.id)
             if (await cache.exists('chunithm', item.id)) {
                 try {
+                    const cachePath = cache.getCachePath('chunithm', item.id)
                     const buffer = await fs.readFile(cachePath)
                     displayUrl = `data:image/png;base64,${buffer.toString('base64')}`
                 } catch (e) {
-                    displayUrl = item.image
+                    this.ctx.logger('htmlframe').warn(`中二节奏曲绘 ${item.id} 读取失败，使用占位图`)
                 }
             }
+        }
+        
+        // 如果没有本地缓存，使用灰色占位图而不是网络 URL
+        if (!displayUrl) {
+            displayUrl = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYwIiBoZWlnaHQ9IjE2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTYwIiBoZWlnaHQ9IjE2MCIgZmlsbD0iI2VlZSIvPjwvc3ZnPg=='
         }
 
         // 中二节奏成绩显示（原始分数）

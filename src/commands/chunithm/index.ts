@@ -38,8 +38,11 @@ async function renderB50Image(
     const page = await ctx.puppeteer.page()
     try {
         await page.setViewport({ width: 1600, height: 1000 })
-        await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 })
-        const buffer = await page.screenshot({ type: 'jpeg', quality: 90, fullPage: true })
+        // 使用 'load' 等待页面完全渲染，但不等待外部网络请求
+        await page.setContent(html, { waitUntil: 'load', timeout: 30000 })
+        // 小延迟确保所有样式应用完成
+        await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 100)))
+        const buffer = await page.screenshot({ type: 'jpeg', quality: 85, fullPage: true })
         return h.image(buffer, 'image/jpeg')
     } finally {
         await page.close()
