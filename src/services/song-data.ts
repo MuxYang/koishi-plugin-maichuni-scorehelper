@@ -49,6 +49,8 @@ declare module 'koishi' {
 
 
 export class SongDataManager extends Service {
+    static inject = ['http', 'database']
+    
     private readonly UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 
     constructor(ctx: Context) {

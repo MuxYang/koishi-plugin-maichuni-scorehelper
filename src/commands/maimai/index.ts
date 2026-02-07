@@ -1,6 +1,6 @@
 import { Context, h } from 'koishi'
 import { MaichuniConfig } from '../../config'
-import { ScoreItem } from '../../services/htmlframe'
+import { ScoreItem as MaimaiScoreItem, B50Data as MaimaiB50HtmlData } from '../../services/htmlframe'
 
 /**
  * Register all maimai commands
@@ -29,14 +29,13 @@ export function registerMaimaiCommands(ctx: Context, config: MaichuniConfig) {
  */
 async function renderB50Image(
     ctx: Context,
-    b50Data: import('../../services/htmlframe').B50Data,
-    type: 'maimai' | 'chunithm' = 'maimai'
+    b50Data: MaimaiB50HtmlData
 ): Promise<string | ReturnType<typeof h.image>> {
     if (!ctx.puppeteer) {
         return '图片渲染服务不可用，请先安装 puppeteer 插件'
     }
 
-    const html = await ctx.htmlframe.generateHtml(b50Data, type)
+    const html = await ctx.htmlframe.generateMaimaiHtml(b50Data)
     const page = await ctx.puppeteer.page()
     try {
         await page.setViewport({ width: 1600, height: 1000 })
@@ -52,31 +51,28 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
     ctx.command('mai.b50 [username:string]', '查询 Best 50 (B35+B15)')
         .option('test', '-t 使用测试数据')
         .action(async ({ session, options }, username) => {
-            const maimaiQuery = ctx.maimaiQuery
-            const htmlframe = ctx.htmlframe
-            
-            if (!maimaiQuery) {
+            if (!ctx.maimaiQuery) {
                 return '查分服务未初始化'
             }
 
             let data
             if (options?.test) {
-                data = await maimaiQuery.getTestData()
+                data = await ctx.maimaiQuery.getTestData()
                 if (!data) return '获取测试数据失败'
             } else {
-                const result = await maimaiQuery.getB50(session!, username)
+                const result = await ctx.maimaiQuery.getB50(session!, username)
                 if (result.error) return result.error
                 data = result.data
             }
 
             if (!data) return '查询失败'
 
-            // Convert to HtmlFrame format - pass QQ for avatar
+            // Convert to Maimai format - pass QQ for avatar
             const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
-            const b50Data = convertToB50Data(data, qq)
+            const b50Data = convertToMaimaiB50Data(data, qq)
 
             try {
-                return await renderB50Image(ctx, b50Data, 'maimai')
+                return await renderB50Image(ctx, b50Data)
             } catch (e) {
                 ctx.logger('mai.b50').error(e)
                 return '生成图片失败：' + (e instanceof Error ? e.message : String(e))
@@ -87,7 +83,6 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
         .option('test', '-t 使用测试数据')
         .action(async ({ session, options }, username) => {
             const maimaiQuery = ctx.maimaiQuery
-            const htmlframe = ctx.htmlframe
             if (!maimaiQuery) return '查分服务未初始化'
 
             let data
@@ -103,11 +98,11 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
 
             // Only show B35
             const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
-            const b50Data = convertToB50Data(data, qq)
+            const b50Data = convertToMaimaiB50Data(data, qq)
             b50Data.b15 = []
 
             try {
-                return await renderB50Image(ctx, b50Data, 'maimai')
+                return await renderB50Image(ctx, b50Data)
             } catch (e) {
                 return '生成图片失败'
             }
@@ -117,7 +112,6 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
         .option('test', '-t 使用测试数据')
         .action(async ({ session, options }, username) => {
             const maimaiQuery = ctx.maimaiQuery
-            const htmlframe = ctx.htmlframe
             if (!maimaiQuery) return '查分服务未初始化'
 
             let data
@@ -133,11 +127,11 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
 
             // Only show B15
             const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
-            const b50Data = convertToB50Data(data, qq)
+            const b50Data = convertToMaimaiB50Data(data, qq)
             b50Data.b35 = []
 
             try {
-                return await renderB50Image(ctx, b50Data, 'maimai')
+                return await renderB50Image(ctx, b50Data)
             } catch (e) {
                 return '生成图片失败'
             }
@@ -154,10 +148,10 @@ function registerApFcCommands(ctx: Context, config: MaichuniConfig) {
             if (!result.data) return '查询失败'
 
             const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
-            const b50Data = convertToB50Data(result.data, qq)
+            const b50Data = convertToMaimaiB50Data(result.data, qq)
 
             try {
-                return await renderB50Image(ctx, b50Data, 'maimai')
+                return await renderB50Image(ctx, b50Data)
             } catch (e) {
                 return '生成图片失败'
             }
@@ -172,10 +166,10 @@ function registerApFcCommands(ctx: Context, config: MaichuniConfig) {
             if (!result.data) return '查询失败'
 
             const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
-            const b50Data = convertToB50Data(result.data, qq)
+            const b50Data = convertToMaimaiB50Data(result.data, qq)
 
             try {
-                return await renderB50Image(ctx, b50Data, 'maimai')
+                return await renderB50Image(ctx, b50Data)
             } catch (e) {
                 return '生成图片失败'
             }
@@ -317,13 +311,12 @@ function registerAliasCommands(ctx: Context, config: MaichuniConfig) {
 
 
 /**
- * Convert API response to HtmlFrame B50Data format
+ * Convert API response to Maimai B50 HTML data format
  */
-function convertToB50Data(data: any, qq?: string): import('../../services/htmlframe').B50Data {
+function convertToMaimaiB50Data(data: any, qq?: string): MaimaiB50HtmlData {
     const charts = data.charts || { dx: [], sd: [] }
 
-    const convertScore = (score: any, rank: number): ScoreItem => {
-        // Song ID: 规范化后的 ID（LXNS 已对 10000 取余，DivingFish 直接返回）
+    const convertScore = (score: any, rank: number): MaimaiScoreItem => {
         const songId = score.song_id || score.id || 0
         let coverId = parseInt(songId) || 0
 
@@ -348,7 +341,7 @@ function convertToB50Data(data: any, qq?: string): import('../../services/htmlfr
             fallbackImage: lxnsCoverUrl,
             type: isDX ? 'DX' : 'STD',
             rate: score.rate || 'sss',
-            fc: (score.fc || '').toUpperCase() as any
+            fc: (score.fc || '').toUpperCase()
         }
     }
 

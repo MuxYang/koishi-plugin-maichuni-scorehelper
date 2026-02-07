@@ -4,12 +4,6 @@ import path from 'path'
 
 export const name = 'htmlframe'
 
-declare module 'koishi' {
-  interface Context {
-    imagecache: any
-  }
-}
-
 export interface ScoreItem {
     id?: number // song id
     title: string
@@ -22,7 +16,7 @@ export interface ScoreItem {
     fallbackImage?: string // fallback cover image URL (LXNS)
     type: 'DX' | 'STD'
     rate: string // 'sssp', 'sss', 'ssp', etc. (lowercase from API)
-    fc: '' | 'FC' | 'FC+' | 'AP' | 'AP+' | 'AJ'
+    fc: string   // '', 'FC', 'FC+', 'AP', 'AP+', 'AJ' etc.
 }
 
 export interface B50Data {
@@ -123,177 +117,34 @@ export class HtmlFrame extends Service {
                 this.ctx.logger('htmlframe').error(`Failed to load ${key} B50 template from ${p}:`, e)
             }
         }
-
-        // 注册测试指令
-        this.ctx.command('maib50test', '测试生成 MaiMai B50 成绩单图片')
-            .action(async () => {
-                const mockData = {
-                    playerName: 'MuxYang',
-                    playerRating: 15432,
-                    avatarUrl: 'https://shama.koishi.chat/avatar.png',
-                    b35: Array(35).fill(null).map((_, i) => ({
-                        title: `Testing Song B35-${i + 1}`,
-                        level: '14.5',
-                        levelIndex: 3,
-                        rating: 280,
-                        score: 100.5,
-                        rank: i + 1,
-                        image: 'https://shama.koishi.chat/avatar.png',
-                        type: 'DX' as const,
-                        rate: 'SSS+',
-                        fc: 'FC+' as const
-                    })),
-                    b15: Array(15).fill(null).map((_, i) => ({
-                        title: `New Song B15-${i + 1}`,
-                        level: '13.2',
-                        levelIndex: 1,
-                        rating: 250,
-                        score: 100.1,
-                        rank: i + 1,
-                        image: 'https://shama.koishi.chat/avatar.png',
-                        type: 'STD' as const,
-                        rate: 'SSS',
-                        fc: 'AP' as const
-                    }))
-                }
-
-                try {
-                    const html = await this.generateHtml(mockData, 'maimai')
-                    const page = await this.ctx.puppeteer.page()
-                    await page.setViewport({ width: 1600, height: 1000 })
-                    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 })
-                    const buffer = await page.screenshot({ type: 'jpeg', quality: 90, fullPage: true })
-                    await page.close()
-                    return h.image(buffer, 'image/jpeg')
-                } catch (e) {
-                    this.ctx.logger('htmlframe').error(e)
-                    return '生成图片失败：' + (e instanceof Error ? e.message : String(e))
-                }
-            })
-
-        this.ctx.command('chub50test', '测试生成 Chunithm B50 成绩单图片')
-            .action(async () => {
-                const mockData = {
-                    playerName: 'MuxYang',
-                    playerRating: 16120,
-                    avatarUrl: 'https://shama.koishi.chat/avatar.png',
-                    b30: Array(30).fill(null).map((_, i) => ({
-                        title: `Chuni Song B30-${i + 1}`,
-                        level: '14.9',
-                        levelIndex: 2,
-                        rating: 285,
-                        score: 1008000,
-                        rank: i + 1,
-                        image: 'https://shama.koishi.chat/avatar.png',
-                        type: 'STD' as const,
-                        rate: 'SSS',
-                        fc: 'AJ' as const
-                    })),
-                    n20: Array(20).fill(null).map((_, i) => ({
-                        title: `Chuni New N20-${i + 1}`,
-                        level: '13.8',
-                        levelIndex: 0,
-                        rating: 270,
-                        score: 100.1,
-                        rank: i + 1,
-                        image: 'https://shama.koishi.chat/avatar.png',
-                        type: 'DX' as const,
-                        rate: 'SSS+',
-                        fc: 'FC' as const
-                    }))
-                }
-
-                try {
-                    const html = await this.generateHtml(mockData, 'chunithm')
-                    const page = await this.ctx.puppeteer.page()
-                    await page.setViewport({ width: 1600, height: 1000 })
-                    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 })
-                    const buffer = await page.screenshot({ type: 'jpeg', quality: 90, fullPage: true })
-                    await page.close()
-                    return h.image(buffer, 'image/jpeg')
-                } catch (e) {
-                    this.ctx.logger('htmlframe').error(e)
-                    return '生成图片失败：' + (e instanceof Error ? e.message : String(e))
-                }
-            })
     }
 
-    public async generateHtml(data: B50Data, type: 'maimai' | 'chunithm' = 'maimai'): Promise<string> {
-        if (!this.templates[type]) {
-            await this.start() // Try loading again
-            if (!this.templates[type]) throw new Error(`Template ${type} not loaded`)
+    /**
+     * 生成舞萌 B50 HTML
+     */
+    public async generateMaimaiHtml(data: B50Data): Promise<string> {
+        if (!this.templates['maimai']) {
+            await this.start()
+            if (!this.templates['maimai']) throw new Error('Maimai template not loaded')
         }
 
-        let html = this.templates[type]
+        let html = this.templates['maimai']
         const cache = this.ctx.imagecache
 
-        // === 头像处理：下载缓存后转为 base64 data URL ===
-        let avatarUrl: string
-        if (data.qq) {
-            // QQ 高清头像接口
-            const qqAvatarRemote = `http://q.qlogo.cn/headimg_dl?dst_uin=${data.qq}&spec=640&img_type=jpg`
-            if (cache) {
-                try {
-                    const result = await cache.downloadImage(qqAvatarRemote, 'qq', data.qq, 5000)
-                    if (result) {
-                        // 已缓存，读取文件转为 base64
-                        const cachePath = cache.getCachePath('qq', data.qq)
-                        const buffer = await fs.readFile(cachePath)
-                        avatarUrl = `data:image/jpeg;base64,${buffer.toString('base64')}`
-                    } else {
-                        avatarUrl = qqAvatarRemote
-                    }
-                } catch (e) {
-                    avatarUrl = qqAvatarRemote
-                }
-            } else {
-                avatarUrl = qqAvatarRemote
-            }
-        } else if (data.avatarUrl) {
-            if (cache && data.avatarUrl.includes('lxns')) {
-                const lxnsMatch = data.avatarUrl.match(/icon\/(\d+)\.png/)
-                if (lxnsMatch) {
-                    try {
-                        const result = await cache.downloadImage(data.avatarUrl, 'lxns-icon', lxnsMatch[1], 5000)
-                        if (result) {
-                            const cachePath = cache.getCachePath('lxns-icon', lxnsMatch[1])
-                            const buffer = await fs.readFile(cachePath)
-                            avatarUrl = `data:image/png;base64,${buffer.toString('base64')}`
-                        } else {
-                            avatarUrl = data.avatarUrl
-                        }
-                    } catch (e) {
-                        avatarUrl = data.avatarUrl
-                    }
-                } else {
-                    avatarUrl = data.avatarUrl
-                }
-            } else {
-                avatarUrl = data.avatarUrl
-            }
-        } else {
-            avatarUrl = ''
-        }
+        // 处理头像
+        let avatarUrl = await this.processAvatarUrl(data, cache)
 
-        // === 批量预下载曲绘：水鱼优先 → LXNS fallback ===
-        if (cache) {
+        // 批量下载舞萌曲绘
+        if (cache && data.b35 && data.b15) {
             const imagesToDownload: Array<{ urls: string | string[]; source: string; id: string | number }> = []
-            const allItems: ScoreItem[] = []
 
-            if (type === 'maimai') {
-                if (data.b35) allItems.push(...data.b35)
-                if (data.b15) allItems.push(...data.b15)
-            } else {
-                if (data.b30) allItems.push(...data.b30)
-                if (data.n20) allItems.push(...data.n20)
-            }
-
+            const allItems = [...data.b35, ...data.b15]
             for (const item of allItems) {
                 if (!item.id || !item.image) continue
                 const urls = [item.image, item.fallbackImage].filter(Boolean) as string[]
                 imagesToDownload.push({
                     urls,
-                    source: type,
+                    source: 'maimai',
                     id: item.id
                 })
             }
@@ -303,66 +154,156 @@ export class HtmlFrame extends Service {
             }
         }
 
-        // Replace Player Name and Rating and Avatar
+        // 替换占位符
         html = html.replace('{playerName}', data.playerName)
             .replace('{playerRating}', data.playerRating.toString())
             .replace(/{avatarUrl}/g, avatarUrl)
 
-        if (type === 'maimai' && data.b35 && data.b15) {
-            // Generate B35 List
-            const b35Html = (await Promise.all(data.b35.map(item => this.renderScoreItemWithImage(item, 'maimai')))).join('')
+        // 生成 B35 和 B15 列表
+        if (data.b35 && data.b15) {
+            const b35Html = (await Promise.all(data.b35.map(item => this.renderMaimaiScoreItem(item)))).join('')
             html = html.replace('<!--B35_SLOT-->', b35Html)
 
-            // Generate B15 List
-            const b15Html = (await Promise.all(data.b15.map(item => this.renderScoreItemWithImage(item, 'maimai')))).join('')
+            const b15Html = (await Promise.all(data.b15.map(item => this.renderMaimaiScoreItem(item)))).join('')
             html = html.replace('<!--B15_SLOT-->', b15Html)
-        } else if (type === 'chunithm' && data.b30 && data.n20) {
-            // Generate B30 List
-            const b30Html = (await Promise.all(data.b30.map(item => this.renderScoreItemWithImage(item, 'chunithm')))).join('')
+        }
+
+        return html
+    }
+
+    /**
+     * 生成中二节奏 B50 HTML
+     */
+    public async generateChunithmHtml(data: B50Data): Promise<string> {
+        if (!this.templates['chunithm']) {
+            await this.start()
+            if (!this.templates['chunithm']) throw new Error('Chunithm template not loaded')
+        }
+
+        let html = this.templates['chunithm']
+        const cache = this.ctx.imagecache
+
+        // 处理头像
+        let avatarUrl = await this.processAvatarUrl(data, cache)
+
+        // 批量下载中二节奏曲绘
+        if (cache && data.b30 && data.n20) {
+            const imagesToDownload: Array<{ urls: string | string[]; source: string; id: string | number }> = []
+
+            const allItems = [...data.b30, ...data.n20]
+            for (const item of allItems) {
+                if (!item.id || !item.image) continue
+                const urls = [item.image, item.fallbackImage].filter(Boolean) as string[]
+                imagesToDownload.push({
+                    urls,
+                    source: 'chunithm',
+                    id: item.id
+                })
+            }
+
+            if (imagesToDownload.length > 0) {
+                await cache.downloadImagesParallel(imagesToDownload, 5)
+            }
+        }
+
+        // 替换占位符
+        html = html.replace('{playerName}', data.playerName)
+            .replace('{playerRating}', data.playerRating.toString())
+            .replace(/{avatarUrl}/g, avatarUrl)
+
+        // 生成 B30 和 N20 列表
+        if (data.b30 && data.n20) {
+            const b30Html = (await Promise.all(data.b30.map(item => this.renderChunithmScoreItem(item)))).join('')
             html = html.replace('<!--B30_SLOT-->', b30Html)
 
-            // Generate N20 List
-            const n20Html = (await Promise.all(data.n20.map(item => this.renderScoreItemWithImage(item, 'chunithm')))).join('')
+            const n20Html = (await Promise.all(data.n20.map(item => this.renderChunithmScoreItem(item)))).join('')
             html = html.replace('<!--N20_SLOT-->', n20Html)
         }
 
         return html
     }
 
-    private async renderScoreItemWithImage(item: ScoreItem, gameType: 'maimai' | 'chunithm'): Promise<string> {
+    /**
+     * 兼容旧接口
+     */
+    public async generateHtml(data: B50Data, type: 'maimai' | 'chunithm' = 'maimai'): Promise<string> {
+        if (type === 'maimai') {
+            return this.generateMaimaiHtml(data)
+        } else {
+            return this.generateChunithmHtml(data)
+        }
+    }
+
+    /**
+     * 处理头像 URL（通用逻辑）
+     */
+    private async processAvatarUrl(data: B50Data, cache: any): Promise<string> {
+        if (data.qq) {
+            const qqAvatarRemote = `http://q.qlogo.cn/headimg_dl?dst_uin=${data.qq}&spec=640&img_type=jpg`
+            if (cache) {
+                try {
+                    const result = await cache.downloadImage(qqAvatarRemote, 'qq', data.qq, 5000)
+                    if (result) {
+                        const cachePath = cache.getCachePath('qq', data.qq)
+                        const buffer = await fs.readFile(cachePath)
+                        return `data:image/jpeg;base64,${buffer.toString('base64')}`
+                    }
+                } catch (e) {
+                    // fallback to remote
+                }
+            }
+            return qqAvatarRemote
+        }
+
+        if (data.avatarUrl) {
+            if (cache && data.avatarUrl.includes('lxns')) {
+                const lxnsMatch = data.avatarUrl.match(/icon\/(\d+)\.png/)
+                if (lxnsMatch) {
+                    try {
+                        const result = await cache.downloadImage(data.avatarUrl, 'lxns-icon', lxnsMatch[1], 5000)
+                        if (result) {
+                            const cachePath = cache.getCachePath('lxns-icon', lxnsMatch[1])
+                            const buffer = await fs.readFile(cachePath)
+                            return `data:image/png;base64,${buffer.toString('base64')}`
+                        }
+                    } catch (e) {
+                        // fallback to remote
+                    }
+                }
+            }
+            return data.avatarUrl
+        }
+
+        return ''
+    }
+
+    /**
+     * 渲染舞萌单条成绩项
+     */
+    private async renderMaimaiScoreItem(item: ScoreItem): Promise<string> {
         const typeClass = item.type === 'DX' ? 'c-#F16449' : 'c-#6EA7E1'
         const cache = this.ctx.imagecache
 
-        // === 图片处理：优先本地缓存（转为 data:// URL），再用远程 URL fallback ===
-        let displayUrl = item.image // 最后的 fallback: 原始远程 URL
+        // 处理图片：优先使用本地缓存
+        let displayUrl = item.image
         if (cache && item.id) {
-            const cachePath = cache.getCachePath(gameType, item.id)
-            if (await cache.exists(gameType, item.id)) {
+            const cachePath = cache.getCachePath('maimai', item.id)
+            if (await cache.exists('maimai', item.id)) {
                 try {
                     const buffer = await fs.readFile(cachePath)
                     displayUrl = `data:image/png;base64,${buffer.toString('base64')}`
                 } catch (e) {
-                    // 读取失败，使用原始 URL
                     displayUrl = item.image
                 }
-            } else {
-                // 缓存不存在，使用原始 URL
-                displayUrl = item.image
             }
         }
 
-        // Score display
-        let scoreDisplay: string
-        if (gameType === 'maimai') {
-            const scoreStr = item.score.toFixed(4)
-            const [scoreInt, scoreDec] = scoreStr.split('.')
-            scoreDisplay = `<span style="color:#c62828">${scoreInt}</span>.<span class="text-.875em" style="color:#e65100">${scoreDec}</span><span class="text-.7em" style="color:#6b7280">%</span>`
-        } else {
-            const formatted = item.score.toLocaleString('en-US')
-            scoreDisplay = `<span style="color:#c62828">${formatted}</span>`
-        }
+        // 舞萌成绩显示（百分比）
+        const scoreStr = item.score.toFixed(4)
+        const [scoreInt, scoreDec] = scoreStr.split('.')
+        const scoreDisplay = `<span style="color:#c62828">${scoreInt}</span>.<span class="text-.875em" style="color:#e65100">${scoreDec}</span><span class="text-.7em" style="color:#6b7280">%</span>`
 
-        // Rate display with colors
+        // 评价率颜色显示
         const rateKey = item.rate.toLowerCase()
         const rateInfo = RATE_DISPLAY_MAP[rateKey] || { label: item.rate.toUpperCase(), color: '#888' }
 
@@ -375,10 +316,10 @@ export class HtmlFrame extends Service {
             rateHtml = `<span style="color:${rateInfo.color};font-weight:700">${rateInfo.label}</span>`
         }
 
-        // FC HTML
+        // FC 显示
         let fcHtml = ''
         if (item.fc) {
-            const isAP = item.fc.includes('AP') || item.fc.includes('AJ')
+            const isAP = item.fc.includes('AP')
             const fcColor = isAP ? '#1b8a4a' : '#2e7d32'
             fcHtml = `<span style="color:${fcColor};font-weight:600">${item.fc}</span>`
         } else {
@@ -386,6 +327,70 @@ export class HtmlFrame extends Service {
         }
 
         const levelIndex = item.levelIndex !== undefined ? item.levelIndex : 2
+
+        return SCORE_TEMPLATE
+            .replace('{title}', item.title)
+            .replace('{image}', displayUrl)
+            .replace('{level}', item.level)
+            .replace('{levelIndex}', levelIndex.toString())
+            .replace('{rating}', item.rating.toString())
+            .replace('{rank}', item.rank.toString())
+            .replace('{scoreDisplay}', scoreDisplay)
+            .replace('{typeClass}', typeClass)
+            .replace('{typeText}', item.type)
+            .replace('{rateHtml}', rateHtml)
+            .replace('{fcHtml}', fcHtml)
+    }
+
+    /**
+     * 渲染中二节奏单条成绩项
+     */
+    private async renderChunithmScoreItem(item: ScoreItem): Promise<string> {
+        const typeClass = 'c-#6EA7E1'  // Chunithm is always STD type
+        const cache = this.ctx.imagecache
+
+        // 处理图片：优先使用本地缓存
+        let displayUrl = item.image
+        if (cache && item.id) {
+            const cachePath = cache.getCachePath('chunithm', item.id)
+            if (await cache.exists('chunithm', item.id)) {
+                try {
+                    const buffer = await fs.readFile(cachePath)
+                    displayUrl = `data:image/png;base64,${buffer.toString('base64')}`
+                } catch (e) {
+                    displayUrl = item.image
+                }
+            }
+        }
+
+        // 中二节奏成绩显示（原始分数）
+        const formatted = item.score.toLocaleString('en-US')
+        const scoreDisplay = `<span style="color:#c62828">${formatted}</span>`
+
+        // 评价率颜色显示
+        const rateKey = item.rate.toLowerCase()
+        const rateInfo = RATE_DISPLAY_MAP[rateKey] || { label: item.rate.toUpperCase(), color: '#888' }
+
+        let rateHtml: string
+        if (rateKey === 'sssp' || rateKey === 'sss') {
+            rateHtml = rateInfo.label.split('').map((char, i) =>
+                `<span style="color:${SSS_CHAR_COLORS[i % SSS_CHAR_COLORS.length]};font-weight:700">${char}</span>`
+            ).join('')
+        } else {
+            rateHtml = `<span style="color:${rateInfo.color};font-weight:700">${rateInfo.label}</span>`
+        }
+
+        // FC 显示（AJ/FC）
+        let fcHtml = ''
+        if (item.fc) {
+            const isAJ = item.fc.includes('AJ')
+            const fcColor = isAJ ? '#1b8a4a' : '#2e7d32'
+            fcHtml = `<span style="color:${fcColor};font-weight:600">${item.fc}</span>`
+        } else {
+            fcHtml = '<span></span>'
+        }
+
+        const levelIndex = item.levelIndex !== undefined ? item.levelIndex : 3
 
         return SCORE_TEMPLATE
             .replace('{title}', item.title)

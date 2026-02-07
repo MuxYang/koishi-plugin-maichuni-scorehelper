@@ -9,6 +9,7 @@ const DF_BASE = 'https://www.diving-fish.com/api/chunithmprober'
 const DF_QUERY_PLAYER = `${DF_BASE}/query/player`
 const DF_TEST_DATA = `${DF_BASE}/player/test_data`
 const DF_PLAYER_RECORDS = `${DF_BASE}/player/records`
+const DF_DEV_PLAYER_RECORDS = `${DF_BASE}/dev/player/records`
 const DF_LOGIN = 'https://www.diving-fish.com/api/maimaidxprober/login' // Using same login endpoint as Maimai
 
 // lxns API endpoints
@@ -120,6 +121,8 @@ declare module 'koishi' {
 
 
 export class ChunithmQuery extends Service {
+    static inject = ['http', 'database']
+    
     private queryConfig: ChunithmQueryConfig = {}
     private readonly UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 
@@ -208,33 +211,27 @@ export class ChunithmQuery extends Service {
 
         // --- LXNS Logic ---
         const tryLxns = async () => {
-            // 1. Dev Token - lookup by friend_code or QQ
-            if (this.queryConfig.lxnsDevToken) {
-                const friendCode = userToken?.lxns_friend_code
-                if (friendCode) {
-                    const res = await this.queryWithLxnsDevToken(friendCode)
-                    if (res.data) return res
-                } else if (qq) {
-                    // Try to resolve QQ → friend_code via lxns API
-                    const res = await this.queryWithLxnsDevTokenByQQ(qq)
-                    if (res.data) return res
-                }
-            }
-
-            // 2. User Token
+            // 1. User Token (优先级最高)
             if (userToken?.lxns_token) {
                 const res = await this.queryWithLxnsToken(userToken.lxns_token)
                 if (res.data) return res
                 if (res.error) return res
             }
 
-            // 3. Public LXNS API (fallback) - if user explicitly chose LXNS and has QQ
-            if (qq) {
-                const res = await this.queryPublicLxnsByQQ(qq)
-                if (res.data) return res
+            // 2. Dev Token with QQ (需要 Dev Token 才能通过 QQ 查询)
+            if (this.queryConfig.lxnsDevToken) {
+                const friendCode = userToken?.lxns_friend_code
+                if (friendCode) {
+                    const res = await this.queryWithLxnsDevToken(friendCode)
+                    if (res.data) return res
+                } else if (qq) {
+                    // Try to resolve QQ → friend_code via lxns API (requires Dev Token)
+                    const res = await this.queryWithLxnsDevTokenByQQ(qq)
+                    if (res.data) return res
+                }
             }
 
-            return { data: null, error: 'LXNS: 无法确定查询目标' }
+            return { data: null, error: 'LXNS: 请绑定 Token 或联系管理员配置开发者 Token' }
         }
 
         // --- Selection Logic ---
@@ -277,9 +274,9 @@ export class ChunithmQuery extends Service {
         if (qq || username) {
             const res = await this.queryPublic(username, qq)
             if (res.data) return res
-            // If DivingFish public failed and we have QQ, try LXNS public
-            if (qq && !username) {
-                return this.queryPublicLxnsByQQ(qq)
+            // If DivingFish public failed and we have QQ and Dev Token, try LXNS with Dev Token
+            if (qq && !username && this.queryConfig.lxnsDevToken) {
+                return this.queryWithLxnsDevTokenByQQ(qq)
             }
             return res
         }
@@ -334,7 +331,7 @@ export class ChunithmQuery extends Service {
             if (username) params.set('username', username)
             else if (qq) params.set('qq', qq)
 
-            const url = `${DF_PLAYER_RECORDS}?${params}`
+            const url = `${DF_DEV_PLAYER_RECORDS}?${params}`
             const data = await this.ctx.http.get<ChunithmB50Data>(url, {
                 headers: {
                     'User-Agent': this.UA,
@@ -467,33 +464,6 @@ export class ChunithmQuery extends Service {
         }
     }
 
-    private async queryWithLxnsDevTokenByQQ(qq: string): Promise<{
-        data: ChunithmB50Data | null
-        error?: string
-    }> {
-        try {
-            // Step 1: Resolve QQ → friend_code via lxns player API
-            const playerUrl = `${LXNS_BASE}/player/qq/${qq}`
-            const playerData = await this.ctx.http.get<any>(playerUrl, {
-                headers: {
-                    'User-Agent': this.UA,
-                    'Authorization': this.queryConfig.lxnsDevToken!
-                },
-                timeout: 15000
-            })
-
-            const friendCode = playerData?.data?.friend_code || playerData?.friend_code
-            if (!friendCode) {
-                return { data: null, error: 'LXNS: 未找到该 QQ 对应的玩家' }
-            }
-
-            // Step 2: Query bests with friend_code
-            return this.queryWithLxnsDevToken(friendCode)
-        } catch (e: any) {
-            return { data: null, error: e.response?.data?.message || 'LXNS: QQ 查询失败' }
-        }
-    }
-
     private async queryPublic(username?: string, qq?: string): Promise<{
         data: ChunithmB50Data | null
         error?: string
@@ -520,21 +490,27 @@ export class ChunithmQuery extends Service {
         }
     }
 
-    private async queryPublicLxnsByQQ(qq: string): Promise<{
+    private async queryWithLxnsDevTokenByQQ(qq: string): Promise<{
         data: ChunithmB50Data | null
         error?: string
     }> {
         try {
-            // Resolve QQ → friend_code via lxns public API (no auth needed)
+            // Resolve QQ → friend_code via lxns API (requires Dev Token)
             const playerUrl = `${LXNS_BASE}/player/qq/${qq}`
-            const playerData = await this.ctx.http.get<any>(playerUrl, {
+            const playerDataResp = await this.ctx.http.get<any>(playerUrl, {
                 headers: {
-                    'User-Agent': this.UA
+                    'User-Agent': this.UA,
+                    'Authorization': this.queryConfig.lxnsDevToken!
                 },
                 timeout: 15000
             })
 
-            const friendCode = playerData?.data?.friend_code || playerData?.friend_code
+            // Unwrap LXNS response: { success, code, data: {...} } or direct object
+            const playerData = (playerDataResp?.success !== undefined || playerDataResp?.code !== undefined) && playerDataResp?.data
+                ? playerDataResp.data
+                : playerDataResp
+            
+            const friendCode = playerData?.friend_code
             if (!friendCode) {
                 return { data: null, error: 'LXNS: 未找到该 QQ 对应的玩家' }
             }

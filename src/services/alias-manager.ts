@@ -22,6 +22,8 @@ declare module 'koishi' {
 
 
 export class AliasManager extends Service {
+    static inject = ['database']
+    
     private lxnsAliasCache: {
         maimai: Map<number, string[]>
         chunithm: Map<number, string[]>

@@ -4,6 +4,12 @@ import * as path from 'path'
 
 export const name = 'imagecache'
 
+declare module 'koishi' {
+    interface Context {
+        imagecache: ImageCacheManager
+    }
+}
+
 /**
  * 图片缓存管理器
  * 管理曲绘和头像等图片的本地缓存

@@ -16,7 +16,7 @@ import { registerLxCommands } from './commands/lx'
 export const name = 'maichuni-scorehelper'
 export const inject = {
   required: ['http', 'database'],
-  optional: ['puppeteer', 'maimaiQuery', 'chunithmQuery', 'htmlframe', 'aliasManager', 'maimaiStatus']
+  optional: ['puppeteer']
 }
 
 export { Config, MaichuniConfig }
@@ -37,17 +37,16 @@ export function apply(ctx: Context, config: MaichuniConfig) {
   // Register database tables
   registerTables(ctx)
 
-  // Register services
-  // MaimaiStatus with debug flag
-  ctx.plugin((ctx) => {
-    return new MaimaiStatus(ctx, config.statusMonitor, config.debug)
-  })
+  // Register internal services
+  ctx.plugin(ImageCacheManager)
   ctx.plugin(HtmlFrame)
   ctx.plugin(AliasManager)
   ctx.plugin(SongDataManager)
-  ctx.plugin(ImageCacheManager)
+  ctx.plugin(MaimaiStatus, {
+    ...config.statusMonitor,
+    debug: config.debug
+  })
   
-  // 增强日志信息
   if (config.debug) {
     logger.info('[DEBUG] 调试模式已启用，将输出详细日志')
   }

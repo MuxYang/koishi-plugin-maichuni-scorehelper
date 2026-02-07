@@ -1,6 +1,6 @@
 import { Context, h } from 'koishi'
 import { MaichuniConfig } from '../../config'
-import { ScoreItem } from '../../services/htmlframe'
+import { ScoreItem as ChunithmScoreItem, B50Data as ChunithmB50HtmlData } from '../../services/htmlframe'
 
 /**
  * Register all chunithm commands
@@ -28,14 +28,13 @@ export function registerChunithmCommands(ctx: Context, config: MaichuniConfig) {
  */
 async function renderB50Image(
     ctx: Context,
-    b50Data: import('../../services/htmlframe').B50Data,
-    type: 'maimai' | 'chunithm' = 'chunithm'
+    b50Data: ChunithmB50HtmlData
 ): Promise<string | ReturnType<typeof h.image>> {
     if (!ctx.puppeteer) {
         return '图片渲染服务不可用，请先安装 puppeteer 插件'
     }
 
-    const html = await ctx.htmlframe.generateHtml(b50Data, type)
+    const html = await ctx.htmlframe.generateChunithmHtml(b50Data)
     const page = await ctx.puppeteer.page()
     try {
         await page.setViewport({ width: 1600, height: 1000 })
@@ -68,10 +67,10 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
             if (!data) return '查询失败'
 
             const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
-            const b50Data = convertToB50Data(data, qq)
+            const b50Data = convertToChunithmB50Data(data, qq, config.chunithmImageSource)
 
             try {
-                return await renderB50Image(ctx, b50Data, 'chunithm')
+                return await renderB50Image(ctx, b50Data)
             } catch (e) {
                 ctx.logger('chu.b50').error(e)
                 return '生成图片失败：' + (e instanceof Error ? e.message : String(e))
@@ -95,11 +94,11 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
             if (!data) return '查询失败'
 
             const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
-            const b50Data = convertToB50Data(data, qq)
+            const b50Data = convertToChunithmB50Data(data, qq, config.chunithmImageSource)
             b50Data.n20 = []
 
             try {
-                return await renderB50Image(ctx, b50Data, 'chunithm')
+                return await renderB50Image(ctx, b50Data)
             } catch (e) {
                 return '生成图片失败'
             }
@@ -122,11 +121,11 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
             if (!data) return '查询失败'
 
             const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
-            const b50Data = convertToB50Data(data, qq)
+            const b50Data = convertToChunithmB50Data(data, qq, config.chunithmImageSource)
             b50Data.b30 = []
 
             try {
-                return await renderB50Image(ctx, b50Data, 'chunithm')
+                return await renderB50Image(ctx, b50Data)
             } catch (e) {
                 return '生成图片失败'
             }
@@ -144,10 +143,10 @@ function registerAjFcCommands(ctx: Context, config: MaichuniConfig) {
             if (!result.data) return '查询失败'
 
             const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
-            const b50Data = convertToB50Data(result.data, qq)
+            const b50Data = convertToChunithmB50Data(result.data, qq, config.chunithmImageSource)
 
             try {
-                return await renderB50Image(ctx, b50Data, 'chunithm')
+                return await renderB50Image(ctx, b50Data)
             } catch (e) {
                 return '生成图片失败'
             }
@@ -162,10 +161,10 @@ function registerAjFcCommands(ctx: Context, config: MaichuniConfig) {
             if (!result.data) return '查询失败'
 
             const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
-            const b50Data = convertToB50Data(result.data, qq)
+            const b50Data = convertToChunithmB50Data(result.data, qq, config.chunithmImageSource)
 
             try {
-                return await renderB50Image(ctx, b50Data, 'chunithm')
+                return await renderB50Image(ctx, b50Data)
             } catch (e) {
                 return '生成图片失败'
             }
@@ -311,20 +310,29 @@ function registerAliasCommands(ctx: Context, config: MaichuniConfig) {
 }
 
 /**
- * Convert API response to HtmlFrame B50Data format for Chunithm
+ * Chunithm 曲绘 URL 生成
+ * 水鱼: https://www.diving-fish.com/covers/chunithm/{id padded to 4}.png
+ * 落雪: https://assets2.lxns.net/chunithm/jacket/{song_id}.png
  */
-function convertToB50Data(data: any, qq?: string): import('../../services/htmlframe').B50Data {
+function getChunithmCoverUrls(songId: number, imageSource: 'fish' | 'lxns' = 'fish'): { primary: string; fallback: string } {
+    const dfUrl = `https://www.diving-fish.com/covers/chunithm/${String(songId).padStart(4, '0')}.png`
+    const lxnsUrl = `https://assets2.lxns.net/chunithm/jacket/${songId}.png`
+
+    if (imageSource === 'lxns') {
+        return { primary: lxnsUrl, fallback: dfUrl }
+    }
+    return { primary: dfUrl, fallback: lxnsUrl }
+}
+
+function convertToChunithmB50Data(data: any, qq?: string, imageSource: 'fish' | 'lxns' = 'fish'): ChunithmB50HtmlData {
     const records = data.records || { b30: [], n20: [] }
 
-    const convertScore = (score: any, rank: number): ScoreItem => {
-        // Song ID: DivingFish uses mid/cid, LXNS uses id
+    const convertScore = (score: any, rank: number): ChunithmScoreItem => {
         const songId = score.mid || score.cid || score.id || 0
         let coverId = parseInt(songId)
         if (isNaN(coverId)) coverId = 0
 
-        // 水鱼 cover（primary），LXNS cover（fallback）
-        const dfCoverUrl = `https://www.diving-fish.com/covers/chunithm/${String(coverId).padStart(4, '0')}.png`
-        const lxnsCoverUrl = `https://assets2.lxns.net/chunithm/music/${songId}.png`
+        const { primary, fallback } = getChunithmCoverUrls(coverId, imageSource)
 
         return {
             id: songId,
@@ -334,11 +342,11 @@ function convertToB50Data(data: any, qq?: string): import('../../services/htmlfr
             rating: Math.floor(((score.ra ?? score.rating) || 0) * 100) / 100,
             score: score.score || 0,
             rank: rank,
-            image: dfCoverUrl,
-            fallbackImage: lxnsCoverUrl,
+            image: primary,
+            fallbackImage: fallback,
             type: 'STD',
             rate: score.rate || score.rank || 'sss',
-            fc: formatChunitmFc(score.fc || score.full_combo)
+            fc: formatChunithmFc(score.fc || score.full_combo)
         }
     }
 
@@ -352,7 +360,7 @@ function convertToB50Data(data: any, qq?: string): import('../../services/htmlfr
     }
 }
 
-function formatChunitmFc(fc?: string): '' | 'FC' | 'FC+' | 'AP' | 'AP+' | 'AJ' {
+function formatChunithmFc(fc?: string): string {
     if (!fc) return ''
     switch (fc.toLowerCase()) {
         case 'fullcombo': return 'FC'

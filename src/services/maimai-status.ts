@@ -110,6 +110,7 @@ export interface Config {
   otherSource?: OtherSourceConfig
   enablePush: boolean
   pushTargets?: string[]
+  debug?: boolean
 }
 
 export const Config: Schema<Config> = Schema.intersect([
@@ -208,6 +209,8 @@ const STATUS_WINDOW_MS = 10 * 60 * 1000
 const API_INTERVAL_MS = 10 * 60 * 1000
 
 export class MaimaiStatus extends Service {
+  static inject = ['http', 'database']
+  
   private statusLogger: Logger
   private timer: NodeJS.Timeout | null = null
   private isFirstCheck = true
@@ -219,10 +222,10 @@ export class MaimaiStatus extends Service {
   private locale: string = 'zh-CN'
   private debugEnabled: boolean = false
 
-  constructor(ctx: Context, public config: Config, debugEnabled?: boolean) {
+  constructor(ctx: Context, public config: Config) {
     super(ctx, 'maimaiStatus')
     this.statusLogger = ctx.logger('maimai-status')
-    this.debugEnabled = debugEnabled ?? false
+    this.debugEnabled = config.debug ?? false
   }
 
   private t(key: string): string {
