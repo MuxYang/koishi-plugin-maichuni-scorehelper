@@ -70,7 +70,7 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
             if (!data) return '查询失败'
 
             const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
-            const b50Data = convertToChunithmB50Data(data, qq, config.chunithmImageSource)
+            const b50Data = convertToChunithmB50Data(data, qq, 'lxns')
 
             try {
                 return await renderB50Image(ctx, b50Data)
@@ -97,7 +97,7 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
             if (!data) return '查询失败'
 
             const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
-            const b50Data = convertToChunithmB50Data(data, qq, config.chunithmImageSource)
+            const b50Data = convertToChunithmB50Data(data, qq, 'lxns')
             b50Data.n20 = []
 
             try {
@@ -124,7 +124,7 @@ function registerB50Commands(ctx: Context, config: MaichuniConfig) {
             if (!data) return '查询失败'
 
             const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
-            const b50Data = convertToChunithmB50Data(data, qq, config.chunithmImageSource)
+            const b50Data = convertToChunithmB50Data(data, qq, 'lxns')
             b50Data.b30 = []
 
             try {
@@ -146,7 +146,7 @@ function registerAjFcCommands(ctx: Context, config: MaichuniConfig) {
             if (!result.data) return '查询失败'
 
             const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
-            const b50Data = convertToChunithmB50Data(result.data, qq, config.chunithmImageSource)
+            const b50Data = convertToChunithmB50Data(result.data, qq, 'lxns')
 
             try {
                 return await renderB50Image(ctx, b50Data)
@@ -164,7 +164,7 @@ function registerAjFcCommands(ctx: Context, config: MaichuniConfig) {
             if (!result.data) return '查询失败'
 
             const qq = (session!.platform === 'onebot' || session!.platform === 'qq') ? session!.userId : undefined
-            const b50Data = convertToChunithmB50Data(result.data, qq, config.chunithmImageSource)
+            const b50Data = convertToChunithmB50Data(result.data, qq, 'lxns')
 
             try {
                 return await renderB50Image(ctx, b50Data)

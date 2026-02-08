@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-maichuni-scorehelper",
-  "version": "0.1.18-test",
-  "description": "【未完成】一些舞萌中二节奏功能",
+  "version": "0.1.20-test",
+  "description": "【有了雏形】一些舞萌中二节奏功能",
   "keywords": [
     "koishi",
     "plugin",

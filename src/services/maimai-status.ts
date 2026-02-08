@@ -2,8 +2,16 @@ import { Context, Schema, Logger, Service } from 'koishi'
 
 export const name = 'maimai-status-monitor'
 
-const AWMC_STATUS_PAGE_URL = 'https://status.awmc.cc/status/maimai'
-const AWMC_HEARTBEAT_API_URL = 'https://status.awmc.cc/api/status-page/heartbeat/maimai'
+const AWMC_STATUS_PAGE_URLS: Record<string, { web: string; api: string }> = {
+  'awmc': {
+    web: 'https://status.awmc.cc/status/maimai',
+    api: 'https://status.awmc.cc/api/status-page/heartbeat/maimai'
+  },
+  'awmc-lite': {
+    web: 'https://status.awmc.cc/status/maimai-lite',
+    api: 'https://status.awmc.cc/api/status-page/heartbeat/maimai-lite'
+  }
+}
 
 const UPTIME_PRESETS: Record<string, { webUrl: string; apiUrl: string; parser: string }> = {
   'uptime-kuma': {
@@ -106,7 +114,7 @@ export interface OtherSourceConfig {
 }
 
 export interface Config {
-  dataSource: 'awmc' | 'other'
+  dataSource: 'awmc' | 'awmc-lite' | 'other'
   otherSource?: OtherSourceConfig
   enablePush: boolean
   pushTargets?: string[]
@@ -117,13 +125,20 @@ export const Config: Schema<Config> = Schema.intersect([
   // 数据源选择
   Schema.object({
     dataSource: Schema.union([
-      Schema.const('awmc').description('status.awmc.cc (内置)'),
+      Schema.const('awmc').description('status.awmc.cc (maimai)'),
+      Schema.const('awmc-lite').description('awmc.cc[lite]'),
       Schema.const('other').description('其他'),
     ]).default('awmc').description('数据源'),
   }).description('数据源设置'),
 
   // 其他数据源配置（条件显示）
   Schema.union([
+    Schema.object({
+      dataSource: Schema.const('awmc').required(),
+    }),
+    Schema.object({
+      dataSource: Schema.const('awmc-lite').required(),
+    }),
     Schema.object({
       dataSource: Schema.const('other').required(),
       otherSource: Schema.intersect([
@@ -253,8 +268,8 @@ export class MaimaiStatus extends Service {
 
     // 确定检查间隔
     let intervalMs: number
-    if (this.config.dataSource === 'awmc') {
-      intervalMs = API_INTERVAL_MS // AWMC 固定 10 分钟
+    if (this.config.dataSource === 'awmc' || this.config.dataSource === 'awmc-lite') {
+      intervalMs = API_INTERVAL_MS // AWMC 和 AWMC-Lite 固定 10 分钟
     } else {
       const checkInterval = this.config.otherSource?.checkInterval ?? 600
       intervalMs = checkInterval * 1000
@@ -296,7 +311,10 @@ export class MaimaiStatus extends Service {
 
   private getDataSourceName(): string {
     if (this.config.dataSource === 'awmc') {
-      return 'status.awmc.cc'
+      return 'status.awmc.cc (maimai)'
+    }
+    if (this.config.dataSource === 'awmc-lite') {
+      return 'awmc.cc[lite]'
     }
 
     const otherSource = this.config.otherSource
@@ -383,7 +401,7 @@ export class MaimaiStatus extends Service {
 
   private async checkTask() {
     try {
-      if (this.config.dataSource === 'awmc') {
+      if (this.config.dataSource === 'awmc' || this.config.dataSource === 'awmc-lite') {
         await this.checkAwmcSource()
       } else {
         await this.checkOtherSource()
@@ -395,11 +413,19 @@ export class MaimaiStatus extends Service {
   }
 
   private async checkAwmcSource() {
-    const heartbeatData = await this.fetchHeartbeats(AWMC_HEARTBEAT_API_URL)
+    // 根据配置源获取对应的API URLs
+    const sourceKey = this.config.dataSource as 'awmc' | 'awmc-lite'
+    const urls = AWMC_STATUS_PAGE_URLS[sourceKey]
+    if (!urls) {
+      this.statusLogger.error(`Unknown AWMC source: ${sourceKey}`)
+      return
+    }
+
+    const heartbeatData = await this.fetchHeartbeats(urls.api)
 
     if (!heartbeatData) {
       this.statusLogger.warn(this.t('api-failed-fallback-web'))
-      await this.syncServiceNamesFromWeb()
+      await this.syncServiceNamesFromWeb(urls.web)
       return
     }
 
@@ -415,7 +441,7 @@ export class MaimaiStatus extends Service {
 
     const needWebSync = this.checkForNewServiceIds(list)
     if (needWebSync) {
-      await this.syncServiceNamesFromWeb()
+      await this.syncServiceNamesFromWeb(urls.web)
     }
 
     this.syncUnknownGroups(list)
@@ -433,8 +459,9 @@ export class MaimaiStatus extends Service {
     return false
   }
 
-  private async syncServiceNamesFromWeb() {
-    const monitorItems = await this.fetchMonitorConfig()
+  private async syncServiceNamesFromWeb(webUrl?: string) {
+    const url = webUrl || AWMC_STATUS_PAGE_URLS['awmc'].web
+    const monitorItems = await this.fetchMonitorConfig(url)
     if (monitorItems && monitorItems.length > 0) {
       for (const item of monitorItems) {
         this.cachedServiceNames[item.id] = item.name
@@ -621,6 +648,7 @@ export class MaimaiStatus extends Service {
 
   private getDataSourceKey(): string {
     if (this.config.dataSource === 'awmc') return 'awmc'
+    if (this.config.dataSource === 'awmc-lite') return 'awmc-lite'
     const other = this.config.otherSource
     if (!other) return 'other_unknown'
     if (other.preset === 'custom') {
@@ -709,14 +737,15 @@ export class MaimaiStatus extends Service {
       .trim() || name
   }
 
-  private async fetchMonitorConfig(): Promise<MonitorItem[]> {
+  private async fetchMonitorConfig(pageUrl?: string): Promise<MonitorItem[]> {
+    const url = pageUrl || AWMC_STATUS_PAGE_URLS['awmc'].web
     let data: any = null
 
     if (this.ctx.puppeteer) {
       try {
         const page = await this.ctx.puppeteer.page()
         try {
-          await page.goto(AWMC_STATUS_PAGE_URL, { waitUntil: 'domcontentloaded', timeout: 15000 })
+          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 })
           try {
             await page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 5000 })
           } catch { }
@@ -732,7 +761,7 @@ export class MaimaiStatus extends Service {
 
     if (!data) {
       try {
-        const html = await this.ctx.http.get(AWMC_STATUS_PAGE_URL, {
+        const html = await this.ctx.http.get(url, {
           responseType: 'text',
           headers: { 'User-Agent': this.UA }
         })
@@ -867,7 +896,7 @@ export class MaimaiStatus extends Service {
     const oldest = statusHistory[0]
     const windowDuration = now - oldest.timestamp
 
-    const checkIntervalMs = this.config.dataSource === 'awmc'
+    const checkIntervalMs = (this.config.dataSource === 'awmc' || this.config.dataSource === 'awmc-lite')
       ? API_INTERVAL_MS
       : (this.config.otherSource?.checkInterval ?? 600) * 1000
 

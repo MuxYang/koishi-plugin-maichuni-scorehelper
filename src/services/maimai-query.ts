@@ -202,27 +202,23 @@ export class MaimaiQuery extends Service {
 
         // --- LXNS Logic ---
         const tryLxns = async () => {
-            // 1. User Token (优先级最高)
+            // 1. User Token (优先级最高，使用个人 API)
             if (userToken?.lxns_token) {
                 const res = await this.queryWithLxnsToken(userToken.lxns_token)
                 if (res.data) return res
                 if (res.error) return res
+                // 如果使用个人 token 失败，直接返回错误，不尝试开发者 token
+                return res
             }
 
-            // 2. Dev Token with QQ (需要 Dev Token 才能通过 QQ 查询)
-            if (this.queryConfig.lxnsDevToken) {
-                const friendCode = userToken?.lxns_friend_code
-                if (friendCode) {
-                    const res = await this.queryWithLxnsDevToken(friendCode)
-                    if (res.data) return res
-                } else if (qq) {
-                    // Try to resolve QQ → friend_code via lxns API (requires Dev Token)
-                    const res = await this.queryWithLxnsDevTokenByQQ(qq)
-                    if (res.data) return res
-                }
+            // 2. Dev Token - 仅在绑定了好友码且存在开发者 Token 时使用
+            if (this.queryConfig.lxnsDevToken && userToken?.lxns_friend_code) {
+                const friendCode = userToken.lxns_friend_code
+                const res = await this.queryWithLxnsDevToken(friendCode)
+                if (res.data) return res
             }
 
-            return { data: null, error: 'LXNS: 请绑定 Token 或联系管理员配置开发者 Token' }
+            return { data: null, error: '请先绑定落雪 Token（lx.bind <token>）' }
         }
 
         // --- Selection Logic ---
@@ -261,9 +257,9 @@ export class MaimaiQuery extends Service {
             if (res.data) return res
         }
 
-        // 5. LXNS Dev Token with QQ (需要 Dev Token 才能通过 QQ 查询)
-        if (qq && !username && this.queryConfig.lxnsDevToken) {
-            const res = await this.queryWithLxnsDevTokenByQQ(qq)
+        // 5. LXNS Dev Token - 仅在绑定了好友码且存在开发者 Token 时使用
+        if (this.queryConfig.lxnsDevToken && userToken?.lxns_friend_code) {
+            const res = await this.queryWithLxnsDevToken(userToken.lxns_friend_code)
             if (res.data) return res
         }
 
