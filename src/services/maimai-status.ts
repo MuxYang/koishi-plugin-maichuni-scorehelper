@@ -311,10 +311,10 @@ export class MaimaiStatus extends Service {
 
   private getDataSourceName(): string {
     if (this.config.dataSource === 'awmc') {
-      return 'status.awmc.cc (maimai)'
+      return 'status.awmc.cc'
     }
     if (this.config.dataSource === 'awmc-lite') {
-      return 'awmc.cc[lite]'
+      return 'status.awmc.cc[lite]'
     }
 
     const otherSource = this.config.otherSource
