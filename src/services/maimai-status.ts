@@ -125,8 +125,8 @@ export const Config: Schema<Config> = Schema.intersect([
   // 数据源选择
   Schema.object({
     dataSource: Schema.union([
-      Schema.const('awmc').description('status.awmc.cc (maimai)'),
-      Schema.const('awmc-lite').description('awmc.cc[lite]'),
+      Schema.const('awmc').description('status.awmc.cc'),
+      Schema.const('awmc-lite').description('status.awmc.cc[lite]'),
       Schema.const('other').description('其他'),
     ]).default('awmc').description('数据源'),
   }).description('数据源设置'),
