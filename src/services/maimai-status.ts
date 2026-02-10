@@ -66,7 +66,8 @@ const I18N: Record<string, Record<string, string>> = {
     'push-failed': '推送失败',
     'monitor-started': '舞萌状态监控已启动',
     'monitor-stopped': '舞萌状态监控已停止',
-    'check-task-error': '检查任务出错'
+    'check-task-error': '检查任务出错',
+    'status-source-request-failed': '状态源请求失败。'
   },
   'en-US': {
     'no-data': 'No server monitoring data available, please try again later.',
@@ -101,7 +102,8 @@ const I18N: Record<string, Record<string, string>> = {
     'push-failed': 'Push failed',
     'monitor-started': 'Maimai status monitor started',
     'monitor-stopped': 'Maimai status monitor stopped',
-    'check-task-error': 'Error in check task'
+    'check-task-error': 'Error in check task',
+    'status-source-request-failed': 'Status source request failed.'
   }
 }
 
@@ -250,6 +252,11 @@ export class MaimaiStatus extends Service {
   private logDebug(...args: any[]) {
     if (!this.debugEnabled) return
     this.statusLogger.info('[debug]', ...args)
+  }
+
+  private truncateError(error: any, maxLength: number = 100): string {
+    const errorStr = typeof error === 'string' ? error : (error?.message || String(error))
+    return errorStr.length > maxLength ? errorStr.slice(0, maxLength) + '...' : errorStr
   }
 
   protected async start() {
@@ -408,7 +415,8 @@ export class MaimaiStatus extends Service {
       }
       this.isFirstCheck = false
     } catch (e) {
-      this.statusLogger.error(this.t('check-task-error'), e)
+      const truncatedMsg = this.truncateError(e)
+      this.logDebug(`Check task error: ${truncatedMsg}`)
     }
   }
 
@@ -417,14 +425,14 @@ export class MaimaiStatus extends Service {
     const sourceKey = this.config.dataSource as 'awmc' | 'awmc-lite'
     const urls = AWMC_STATUS_PAGE_URLS[sourceKey]
     if (!urls) {
-      this.statusLogger.error(`Unknown AWMC source: ${sourceKey}`)
+      this.logDebug(`Unknown AWMC source: ${sourceKey}`)
       return
     }
 
     const heartbeatData = await this.fetchHeartbeats(urls.api)
 
     if (!heartbeatData) {
-      this.statusLogger.warn(this.t('api-failed-fallback-web'))
+      this.logDebug(`API request failed, trying to sync from web page...`)
       await this.syncServiceNamesFromWeb(urls.web)
       return
     }
@@ -435,7 +443,7 @@ export class MaimaiStatus extends Service {
 
     const list = heartbeatData.heartbeatList
     if (!list) {
-      this.statusLogger.warn(this.t('invalid-heartbeat-format'))
+      this.logDebug(`Invalid heartbeat data format`)
       return
     }
 
@@ -468,7 +476,7 @@ export class MaimaiStatus extends Service {
       }
       await this.saveCache(monitorItems)
       this.syncGroups(monitorItems)
-      this.logDebug(`Data synced for source ${this.getDataSourceKey()}: Updated ${monitorItems.length} monitor names in DB.`)
+      this.logDebug(`Synced ${monitorItems.length} monitor names from data source`)
     }
   }
 
@@ -495,7 +503,12 @@ export class MaimaiStatus extends Service {
         await this.processOtherSourceData(parsed)
       }
     } catch (e) {
-      this.statusLogger.error(this.t('fetch-other-failed'), e)
+      if (this.debugEnabled) {
+        const truncatedMsg = this.truncateError(e)
+        this.logDebug(`Other source fetch error: ${truncatedMsg}`)
+      } else {
+        this.statusLogger.error(this.t('status-source-request-failed'))
+      }
     }
   }
 
@@ -514,7 +527,10 @@ export class MaimaiStatus extends Service {
           return null
       }
     } catch (e) {
-      this.statusLogger.error(this.t('parse-failed'), e)
+      if (this.debugEnabled) {
+        const truncatedMsg = this.truncateError(e)
+        this.logDebug(`Parse other source error: ${truncatedMsg}`)
+      }
       return null
     }
   }
@@ -574,7 +590,10 @@ export class MaimaiStatus extends Service {
         uptime: m.uptime ?? m.uptime_ratio ?? 0
       }))
     } catch (e) {
-      this.statusLogger.error(this.t('parse-failed'), e)
+      if (this.debugEnabled) {
+        const truncatedMsg = this.truncateError(e)
+        this.logDebug(`Parse custom data error: ${truncatedMsg}`)
+      }
       return null
     }
   }
@@ -668,7 +687,10 @@ export class MaimaiStatus extends Service {
       }))
       await this.ctx.database.upsert('maimai_monitor_name', rows, ['source', 'monitor_id'])
     } catch (e) {
-      this.statusLogger.warn(this.t('save-cache-failed'), e)
+      if (this.debugEnabled) {
+        const truncatedMsg = this.truncateError(e)
+        this.logDebug(`Save cache error: ${truncatedMsg}`)
+      }
     }
   }
 
@@ -682,18 +704,12 @@ export class MaimaiStatus extends Service {
         this.cachedServiceNames[row.monitor_id] = row.name
       }
 
-      // Sync groups if needed (optional based on logic, but good to have initial state)
-      // Note: original logic loaded 'items' from file which contained grouping.
-      // Database only stores names. We might lose grouping info if it was stored in 'items'.
-      // But fetchMonitorConfig returns items with grouping. 
-      // If we restart, we rely on fetch or previous knowledge.
-      // Reconstituting groups from just names and IDs?
-      // ServiceGroup creation happens in processOtherSourceData or syncUnknownGroups.
-      // So groups will be created when data arrives.
-
-      this.statusLogger.info(`${this.t('loaded-from-cache')}: ${rows.length}`)
+      this.logDebug(`Loaded from cache: ${rows.length} monitor names`)
     } catch (e) {
-      this.statusLogger.warn('Failed to load cache from DB', e)
+      if (this.debugEnabled) {
+        const truncatedMsg = this.truncateError(e)
+        this.logDebug(`Load cache error: ${truncatedMsg}`)
+      }
       this.cachedServiceNames = {}
     }
   }
@@ -755,7 +771,8 @@ export class MaimaiStatus extends Service {
           await page.close()
         }
       } catch (e) {
-        this.statusLogger.warn(`${this.t('puppeteer-failed')}: ${(e as any).message}`)
+        const truncatedMsg = this.truncateError(e)
+        this.logDebug(`Puppeteer fetch error: ${truncatedMsg}`)
       }
     }
 
@@ -773,7 +790,10 @@ export class MaimaiStatus extends Service {
           data = parseJsObject()
         }
       } catch (e) {
-        this.statusLogger.error(this.t('html-parse-failed'), e)
+        if (this.debugEnabled) {
+          const truncatedMsg = this.truncateError(e)
+          this.logDebug(`HTML parse error: ${truncatedMsg}`)
+        }
       }
     }
 
@@ -837,14 +857,20 @@ export class MaimaiStatus extends Service {
         try {
           data = JSON.parse(data)
         } catch (err) {
-          this.statusLogger.warn(`${this.t('heartbeat-parse-failed')}: ${(err as any).message}`)
+          const truncatedMsg = this.truncateError(err)
+          this.logDebug(`Heartbeat JSON parse failed: ${truncatedMsg}`)
           return null
         }
       }
 
       return data || {}
     } catch (e) {
-      this.statusLogger.warn(`${this.t('http-heartbeat-failed')}: ${(e as any)?.message || e}`)
+      if (this.debugEnabled) {
+        const truncatedMsg = this.truncateError(e)
+        this.logDebug(`Heartbeat fetch error: ${truncatedMsg}`)
+      } else {
+        this.statusLogger.error(this.t('status-source-request-failed'))
+      }
       return null
     }
   }
@@ -929,7 +955,7 @@ export class MaimaiStatus extends Service {
 
       const message = `${groupName} ${statusText}`
 
-      this.statusLogger.info(`[${groupName}] ${statusText}`)
+      this.logDebug(`[${groupName}] ${statusText}`)
 
       if (this.isFirstCheck) {
         this.logDebug(`${groupName} First check notification suppressed.`)
@@ -943,7 +969,7 @@ export class MaimaiStatus extends Service {
       group.statusHistory = []
     } else {
       if (this.debugEnabled) {
-        this.logDebug(`${this.t('window-not-ready')}: ${groupName} ${Math.round(windowDuration / 1000)}s < ${STATUS_WINDOW_MS / 1000}s`)
+        this.logDebug(`Window not ready: ${groupName} ${Math.round(windowDuration / 1000)}s < ${STATUS_WINDOW_MS / 1000}s`)
       }
     }
   }
@@ -953,7 +979,7 @@ export class MaimaiStatus extends Service {
 
     const bot = this.ctx.bots[0]
     if (!bot) {
-      this.statusLogger.warn(this.t('no-bot-available'))
+      this.logDebug('No bot available to send notification')
       return
     }
 
@@ -965,9 +991,12 @@ export class MaimaiStatus extends Service {
         } else if (type === 'user') {
           await bot.sendPrivateMessage(id, message)
         }
-        this.logDebug(`${this.t('push-to-target')}: ${target}`)
+        this.logDebug(`Push to target: ${target}`)
       } catch (e) {
-        this.statusLogger.error(`${this.t('push-failed')}: ${target}`, e)
+        if (this.debugEnabled) {
+          const truncatedMsg = this.truncateError(e)
+          this.logDebug(`Push failed for ${target}: ${truncatedMsg}`)
+        }
       }
     }
   }
