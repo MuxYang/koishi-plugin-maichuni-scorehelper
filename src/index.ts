@@ -39,8 +39,8 @@ export function apply(ctx: Context, config: MaichuniConfig) {
 
   // Register internal services
   ctx.plugin(ImageCacheManager)
-  ctx.plugin(HtmlFrame)
-  ctx.plugin(AliasManager)
+  ctx.plugin(HtmlFrame, { debug: config.debug })
+  ctx.plugin(AliasManager, { debug: config.debug })
   ctx.plugin(SongDataManager)
   ctx.plugin(MaimaiStatus, {
     ...config.statusMonitor,

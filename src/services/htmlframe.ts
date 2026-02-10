@@ -104,15 +104,20 @@ export class HtmlFrame extends Service {
         chunithm: path.join(__dirname, '../../web_pic/chunithm_b50_template.html')
     }
 
-    constructor(ctx: Context) {
+    private debugEnabled = false
+
+    constructor(ctx: Context, config?: { debug?: boolean }) {
         super(ctx, 'htmlframe')
+        this.debugEnabled = config?.debug ?? false
     }
 
     protected async start() {
         for (const [key, p] of Object.entries(this.templatePaths)) {
             try {
                 this.templates[key] = await fs.readFile(p, 'utf-8')
-                this.ctx.logger('htmlframe').info(`${key} B50 template loaded successfully.`)
+                if (this.debugEnabled) {
+                    this.ctx.logger('htmlframe').info(`[debug] ${key} B50 template loaded successfully.`)
+                }
             } catch (e) {
                 this.ctx.logger('htmlframe').error(`Failed to load ${key} B50 template from ${p}:`, e)
             }

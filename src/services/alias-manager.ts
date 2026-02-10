@@ -40,15 +40,20 @@ export class AliasManager extends Service {
             chunithm: new Map()
         }
 
-    constructor(ctx: Context) {
+    private debugEnabled = false
+
+    constructor(ctx: Context, config?: { debug?: boolean }) {
         super(ctx, 'aliasManager')
+        this.debugEnabled = config?.debug ?? false
     }
 
     protected async start() {
         // Fetch lxns aliases on startup
         await this.refreshLxnsCache('maimai')
         await this.refreshLxnsCache('chunithm')
-        this.logger.info('Alias manager started, lxns cache loaded')
+        if (this.debugEnabled) {
+            this.logger.info('[debug] Alias manager started, lxns cache loaded')
+        }
     }
 
     /**
@@ -154,7 +159,9 @@ export class AliasManager extends Service {
                 }
             }
 
-            this.logger.info(`Refreshed ${game} lxns alias cache: ${response.aliases.length} songs`)
+            if (this.debugEnabled) {
+                this.logger.info(`[debug] Refreshed ${game} lxns alias cache: ${response.aliases.length} songs`)
+            }
         } catch (e) {
             this.logger.warn(`Failed to fetch ${game} lxns alias cache:`, e)
         }
