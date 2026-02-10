@@ -26,7 +26,9 @@ export class ImageCacheManager extends Service {
     protected async start() {
         try {
             await fs.mkdir(this.cacheDir, { recursive: true })
-            this.ctx.logger('imagecache').info(`图片缓存目录已初始化: ${this.cacheDir}`)
+            if (this.ctx.config.debug) {
+                this.ctx.logger('imagecache').info(`图片缓存目录已初始化: ${this.cacheDir}`)
+            }
         } catch (error) {
             this.ctx.logger('imagecache').error(`初始化缓存目录失败:`, error)
         }

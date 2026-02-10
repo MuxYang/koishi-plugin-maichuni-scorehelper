@@ -70,5 +70,7 @@ export function apply(ctx: Context, config: MaichuniConfig) {
   registerFishCommands(ctx, config)
   registerLxCommands(ctx, config)
   
-  logger.info('maimai 和 CHUNITHM 查分插件已启动')
+  if (config.debug) {
+    logger.info('maimai 和 CHUNITHM 查分插件已启动')
+  }
 }

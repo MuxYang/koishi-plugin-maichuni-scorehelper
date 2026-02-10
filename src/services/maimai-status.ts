@@ -260,7 +260,10 @@ export class MaimaiStatus extends Service {
   }
 
   protected async start() {
+    if (this.debugEnabled) {
     this.statusLogger.info(this.t('monitor-started'))
+    }
+    
     await this.loadCache()
 
     // 注册指令
