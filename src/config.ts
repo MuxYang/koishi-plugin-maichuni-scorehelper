@@ -32,7 +32,7 @@ export const Config: Schema<MaichuniConfig> = Schema.intersect([
             .description('登录页面 URL'),
     }).description('登录认证'),
     Schema.object({
-        statusMonitor: MaimaiStatusConfig.description('监控配置'),
+        statusMonitor: MaimaiStatusConfig.description(''),
     }).description('服务器状态'),
     Schema.object({
         debug: Schema.boolean()
