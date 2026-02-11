@@ -122,7 +122,7 @@ declare module 'koishi' {
 
 export class ChunithmQuery extends Service {
     static inject = ['http', 'database']
-    
+
     private queryConfig: ChunithmQueryConfig = {}
     private readonly UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 
@@ -173,6 +173,17 @@ export class ChunithmQuery extends Service {
             qq = userId
         }
 
+        // Fallback: try to extract QQ from raw event data
+        if (!qq) {
+            const event = (session as any).event
+            const rawUserId = event?.user?.id || event?.user_id || (session as any).user_id
+            if (rawUserId && /^\d+$/.test(String(rawUserId))) {
+                qq = String(rawUserId)
+            }
+        }
+
+        this.logDebug(`getB50 调用: platform=${platform}, userId=${userId}, qq=${qq || '(未获取)'}, username=${username || '(未提供)'}`)
+
         // Retrieve User Token and Preference
         let userToken: UserToken | null = null
         if (userId) {
@@ -180,6 +191,7 @@ export class ChunithmQuery extends Service {
         }
 
         const preferredMode = userToken?.preferred_mode
+        this.logDebug(`用户数据: token存在=${!!userToken}, preferredMode=${preferredMode || 'auto'}, lxnsToken=${!!userToken?.lxns_token}, friendCode=${userToken?.lxns_friend_code || '无'}, lxnsDevToken配置=${!!this.queryConfig.lxnsDevToken}`)
 
         // --- DivingFish Logic ---
         const tryDivingFish = async () => {
@@ -238,12 +250,16 @@ export class ChunithmQuery extends Service {
         // --- Selection Logic ---
 
         if (preferredMode === 'fish') {
+            this.logDebug('数据源选择: 用户指定 DivingFish')
             return await tryDivingFish()
         }
 
         if (preferredMode === 'lxns') {
+            this.logDebug('数据源选择: 用户指定 LXNS')
             return await tryLxns()
         }
+
+        this.logDebug('数据源选择: Auto 模式')
 
         // Auto Mode (Default) — 中二节奏默认落雪源（需配置开发者 token）
 
@@ -433,7 +449,7 @@ export class ChunithmQuery extends Service {
                 normalized.nickname = normalized.nickname || playerInfo.name
                 normalized.rating = normalized.rating || playerInfo.rating
                 if (playerInfo.character?.id) {
-                    ;(normalized as any).avatar_url = `https://assets2.lxns.net/chunithm/character/${playerInfo.character.id}.png`
+                    ; (normalized as any).avatar_url = `https://assets2.lxns.net/chunithm/character/${playerInfo.character.id}.png`
                 }
             }
 
@@ -467,7 +483,7 @@ export class ChunithmQuery extends Service {
                 normalized.nickname = normalized.nickname || playerInfo.name
                 normalized.rating = normalized.rating || playerInfo.rating
                 if (playerInfo.character?.id) {
-                    ;(normalized as any).avatar_url = `https://assets2.lxns.net/chunithm/character/${playerInfo.character.id}.png`
+                    ; (normalized as any).avatar_url = `https://assets2.lxns.net/chunithm/character/${playerInfo.character.id}.png`
                 }
             }
 
@@ -524,7 +540,7 @@ export class ChunithmQuery extends Service {
             const playerData = (playerDataResp?.success !== undefined || playerDataResp?.code !== undefined) && playerDataResp?.data
                 ? playerDataResp.data
                 : playerDataResp
-            
+
             const friendCode = playerData?.friend_code
             if (!friendCode) {
                 return { data: null, error: 'LXNS: 未找到该 QQ 对应的玩家' }
@@ -550,7 +566,7 @@ export class ChunithmQuery extends Service {
                 normalized.nickname = normalized.nickname || playerInfo.name
                 normalized.rating = normalized.rating || playerInfo.rating
                 if (playerInfo.icon?.id) {
-                    ;(normalized as any).avatar_url = `https://assets2.lxns.net/chunithm/icon/${playerInfo.icon.id}.png`
+                    ; (normalized as any).avatar_url = `https://assets2.lxns.net/chunithm/icon/${playerInfo.icon.id}.png`
                 }
             }
 
