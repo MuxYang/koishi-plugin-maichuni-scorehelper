@@ -15,7 +15,7 @@ const DF_LOGIN = 'https://www.diving-fish.com/api/maimaidxprober/login' // Using
 // lxns API endpoints
 const LXNS_BASE = 'https://maimai.lxns.net/api/v0/chunithm'
 const LXNS_PLAYER_BESTS = (friendCode: number) => `${LXNS_BASE}/player/${friendCode}/bests`
-const LXNS_USER_RECORDS = 'https://maimai.lxns.net/api/v0/user/chunithm/player/records'
+const LXNS_USER_SCORES = 'https://maimai.lxns.net/api/v0/user/chunithm/player/scores'
 
 export interface ChunithmScore {
     id?: number
@@ -242,21 +242,33 @@ export class ChunithmQuery extends Service {
             if (this.queryConfig.lxnsDevToken && qq) {
                 const res = await this.queryWithLxnsDevTokenByQQ(qq)
                 if (res.data) return res
+                // 返回具体的 LXNS 错误而非通用消息
+                return res
             }
 
-            return { data: null, error: '请先绑定落雪 Token（lx.bind <token>）或确保拥有 QQ 号' }
+            return { data: null, error: 'LXNS: 无可用的查询方式（未绑定 Token/好友码，且无法通过 QQ 查询）' }
         }
 
         // --- Selection Logic ---
 
         if (preferredMode === 'fish') {
-            this.logDebug('数据源选择: 用户指定 DivingFish')
-            return await tryDivingFish()
+            this.logDebug('数据源选择: 用户指定 DivingFish，失败后回退 LXNS')
+            const fishResult = await tryDivingFish()
+            if (fishResult.data) return fishResult
+            this.logDebug('DivingFish 查询失败，尝试回退 LXNS')
+            const lxnsResult = await tryLxns()
+            if (lxnsResult.data) return lxnsResult
+            return fishResult // 返回原始首选源的错误
         }
 
         if (preferredMode === 'lxns') {
-            this.logDebug('数据源选择: 用户指定 LXNS')
-            return await tryLxns()
+            this.logDebug('数据源选择: 用户指定 LXNS，失败后回退 DivingFish')
+            const lxnsResult = await tryLxns()
+            if (lxnsResult.data) return lxnsResult
+            this.logDebug(`LXNS 查询失败 (${lxnsResult.error})，尝试回退 DivingFish`)
+            const fishResult = await tryDivingFish()
+            if (fishResult.data) return fishResult
+            return lxnsResult // 返回原始首选源的错误
         }
 
         this.logDebug('数据源选择: Auto 模式')
@@ -430,18 +442,19 @@ export class ChunithmQuery extends Service {
         error?: string
     }> {
         try {
+            // 个人 API 使用 X-User-Token 请求头（非 Authorization）
             const authHeaders = {
                 'User-Agent': this.UA,
-                'Authorization': token
+                'X-User-Token': token
             }
 
-            // Fetch records + player info in parallel
-            const [recordsResp, playerResp] = await Promise.all([
-                this.ctx.http.get<any>(LXNS_USER_RECORDS, { headers: authHeaders, timeout: 15000 }),
+            // Fetch scores + player info in parallel
+            const [scoresResp, playerResp] = await Promise.all([
+                this.ctx.http.get<any>(LXNS_USER_SCORES, { headers: authHeaders, timeout: 15000 }),
                 this.ctx.http.get<any>('https://maimai.lxns.net/api/v0/user/chunithm/player', { headers: authHeaders, timeout: 10000 }).catch(() => null)
             ])
 
-            const normalized = this.normalizeData(recordsResp)
+            const normalized = this.normalizeData(scoresResp)
 
             // Merge player info
             const playerInfo = playerResp?.data || playerResp
@@ -530,6 +543,7 @@ export class ChunithmQuery extends Service {
             }
 
             // Resolve QQ → friend_code via lxns developer API
+            this.logDebug(`LXNS QQ 查询: ${LXNS_BASE}/player/qq/${qq}`)
             const playerUrl = `${LXNS_BASE}/player/qq/${qq}`
             const playerDataResp = await this.ctx.http.get<any>(playerUrl, {
                 headers: authHeaders,
@@ -542,6 +556,7 @@ export class ChunithmQuery extends Service {
                 : playerDataResp
 
             const friendCode = playerData?.friend_code
+            this.logDebug(`LXNS QQ 查询结果: friend_code=${friendCode || '(未找到)'}, name=${playerData?.name || '(未知)'}`)
             if (!friendCode) {
                 return { data: null, error: 'LXNS: 未找到该 QQ 对应的玩家' }
             }
