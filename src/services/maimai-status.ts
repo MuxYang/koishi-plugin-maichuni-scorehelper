@@ -227,7 +227,7 @@ const API_INTERVAL_MS = 10 * 60 * 1000
 
 export class MaimaiStatus extends Service {
   static inject = ['http', 'database']
-  
+
   private statusLogger: Logger
   private timer: NodeJS.Timeout | null = null
   private isFirstCheck = true
@@ -261,9 +261,9 @@ export class MaimaiStatus extends Service {
 
   protected async start() {
     if (this.debugEnabled) {
-    this.statusLogger.info(this.t('monitor-started'))
+      this.statusLogger.info(this.t('monitor-started'))
     }
-    
+
     await this.loadCache()
 
     // 注册指令
@@ -432,10 +432,10 @@ export class MaimaiStatus extends Service {
       return
     }
 
-    const heartbeatData = await this.fetchHeartbeats(urls.api)
+    const { data: heartbeatData, error: fetchError } = await this.fetchHeartbeats(urls.api)
 
     if (!heartbeatData) {
-      this.logDebug(`API request failed, trying to sync from web page...`)
+      this.logDebug(`API request failed${fetchError ? `: ${fetchError}` : ''}，trying to sync from web page...`)
       await this.syncServiceNamesFromWeb(urls.web)
       return
     }
@@ -844,7 +844,7 @@ export class MaimaiStatus extends Service {
     }
   }
 
-  private async fetchHeartbeats(url: string): Promise<any> {
+  private async fetchHeartbeats(url: string): Promise<{ data: any; error?: string }> {
     try {
       let data = await this.ctx.http.get(url, {
         headers: { 'User-Agent': this.UA },
@@ -860,21 +860,21 @@ export class MaimaiStatus extends Service {
         try {
           data = JSON.parse(data)
         } catch (err) {
-          const truncatedMsg = this.truncateError(err)
-          this.logDebug(`Heartbeat JSON parse failed: ${truncatedMsg}`)
-          return null
+          const errMsg = this.truncateError(err)
+          this.logDebug(`Heartbeat JSON parse failed: ${errMsg}`)
+          return { data: null, error: errMsg }
         }
       }
 
-      return data || {}
+      return { data: data || {} }
     } catch (e) {
+      const errMsg = this.truncateError(e)
       if (this.debugEnabled) {
-        const truncatedMsg = this.truncateError(e)
-        this.logDebug(`Heartbeat fetch error: ${truncatedMsg}`)
+        this.logDebug(`Heartbeat fetch error: ${errMsg}`)
       } else {
         this.statusLogger.error(this.t('status-source-request-failed'))
       }
-      return null
+      return { data: null, error: errMsg }
     }
   }
 
