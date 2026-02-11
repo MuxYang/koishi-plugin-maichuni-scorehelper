@@ -20,9 +20,9 @@ export interface MaichuniConfig {
 export const Config: Schema<MaichuniConfig> = Schema.intersect([
     Schema.object({
         divingfishDevToken: Schema.string()
-            .description('水鱼开发者令牌'),
+            .description('水鱼开发者令牌（舞萌DX 默认数据源）'),
         lxnsDevToken: Schema.string()
-            .description('落雪开发者令牌'),
+            .description('落雪开发者令牌（中二节奏默认数据源，配置后可通过 QQ 号自动查询未绑定用户）'),
     }).description('API 配置'),
     Schema.object({
         authToken: Schema.string()

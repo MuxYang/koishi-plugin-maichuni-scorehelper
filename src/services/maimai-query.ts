@@ -207,18 +207,23 @@ export class MaimaiQuery extends Service {
                 const res = await this.queryWithLxnsToken(userToken.lxns_token)
                 if (res.data) return res
                 if (res.error) return res
-                // 如果使用个人 token 失败，直接返回错误，不尝试开发者 token
                 return res
             }
 
-            // 2. Dev Token - 仅在绑定了好友码且存在开发者 Token 时使用
+            // 2. Dev Token - 绑定了好友码时直接通过好友码查询
             if (this.queryConfig.lxnsDevToken && userToken?.lxns_friend_code) {
                 const friendCode = userToken.lxns_friend_code
                 const res = await this.queryWithLxnsDevToken(friendCode)
                 if (res.data) return res
             }
 
-            return { data: null, error: '请先绑定落雪 Token（lx.bind <token>）' }
+            // 3. Dev Token - 未绑定 token/好友码，但有 QQ 号时，通过开发者 API 按 QQ 查询
+            if (this.queryConfig.lxnsDevToken && qq) {
+                const res = await this.queryWithLxnsDevTokenByQQ(qq)
+                if (res.data) return res
+            }
+
+            return { data: null, error: '请先绑定落雪 Token（lx.bind <token>）或确保拥有 QQ 号' }
         }
 
         // --- Selection Logic ---
@@ -231,7 +236,7 @@ export class MaimaiQuery extends Service {
             return await tryLxns()
         }
 
-        // Auto Mode (Default)
+        // Auto Mode (Default) — 舞萌DX 默认水鱼源
 
         // 1. Fish Dev
         if (this.queryConfig.divingfishDevToken) {
@@ -257,13 +262,19 @@ export class MaimaiQuery extends Service {
             if (res.data) return res
         }
 
-        // 5. LXNS Dev Token - 仅在绑定了好友码且存在开发者 Token 时使用
+        // 5. LXNS Dev Token - 绑定了好友码时使用
         if (this.queryConfig.lxnsDevToken && userToken?.lxns_friend_code) {
             const res = await this.queryWithLxnsDevToken(userToken.lxns_friend_code)
             if (res.data) return res
         }
 
-        // 6. Public (DivingFish only)
+        // 6. LXNS Dev Token - 未绑定 token 的用户通过 QQ 号查询
+        if (this.queryConfig.lxnsDevToken && qq) {
+            const res = await this.queryWithLxnsDevTokenByQQ(qq)
+            if (res.data) return res
+        }
+
+        // 7. Public (DivingFish only)
         if (qq || username) {
             return this.queryPublic(username, qq)
         }
@@ -482,13 +493,15 @@ export class MaimaiQuery extends Service {
         error?: string
     }> {
         try {
-            // Resolve QQ → friend_code via lxns API (requires Dev Token)
+            const authHeaders = {
+                'User-Agent': this.UA,
+                'Authorization': this.queryConfig.lxnsDevToken!
+            }
+
+            // Resolve QQ → friend_code via lxns developer API
             const playerUrl = `${LXNS_BASE}/player/qq/${qq}`
             const playerDataResp = await this.ctx.http.get<any>(playerUrl, {
-                headers: {
-                    'User-Agent': this.UA,
-                    'Authorization': this.queryConfig.lxnsDevToken!
-                },
+                headers: authHeaders,
                 timeout: 15000
             })
 
@@ -502,23 +515,17 @@ export class MaimaiQuery extends Service {
                 return { data: null, error: 'LXNS: 未找到该 QQ 对应的玩家' }
             }
 
-            // Query bests with friend_code via public API
-            const bestsUrl = LXNS_PLAYER_BESTS(friendCode)
-            const bestsResp = await this.ctx.http.get<any>(bestsUrl, {
-                headers: {
-                    'User-Agent': this.UA
-                },
-                timeout: 15000
-            })
-
-            // Get player info for name and rating
-            const playerInfoUrl = `${LXNS_BASE}/player/${friendCode}`
-            const playerInfoResp = await this.ctx.http.get<any>(playerInfoUrl, {
-                headers: {
-                    'User-Agent': this.UA
-                },
-                timeout: 10000
-            }).catch(() => null)
+            // Query bests + player info with dev token in parallel
+            const [bestsResp, playerInfoResp] = await Promise.all([
+                this.ctx.http.get<any>(LXNS_PLAYER_BESTS(friendCode), {
+                    headers: authHeaders,
+                    timeout: 15000
+                }),
+                this.ctx.http.get<any>(`${LXNS_BASE}/player/${friendCode}`, {
+                    headers: authHeaders,
+                    timeout: 10000
+                }).catch(() => null)
+            ])
 
             const normalized = this.normalizeData(bestsResp)
 
