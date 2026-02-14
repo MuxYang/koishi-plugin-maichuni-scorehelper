@@ -104,6 +104,10 @@ const I18N: Record<string, Record<string, string>> = {
     'monitor-stopped': 'Maimai status monitor stopped',
     'check-task-error': 'Error in check task',
     'status-source-request-failed': 'Status source request failed.'
+  },
+  'unknown-status-recheck': {
+    'zh-CN': '检测到未知状态，正在重新检查...',
+    'en-US': 'Unknown status detected, rechecking...'
   }
 }
 
@@ -271,9 +275,18 @@ export class MaimaiStatus extends Service {
       .alias('maimai-status')
       .action(async () => {
         this.lastManualQueryTime = Date.now()
-        // 手动更新：始终先请求 API，再根据 ID 判断是否需要请求 web，然后返回状态摘要
+        // Perform the initial status check
         await this.checkTask()
-        return await this.getStatusSummary(false) // false = 不再重复调用 checkTask
+        const summary = await this.getStatusSummary(false) // false = no repeated checkTask calls
+
+        // If 'unknown' status exists, recheck and push status
+        if (summary.includes(this.t('unknown'))) {
+          this.statusLogger.info(this.t('unknown-status-recheck'))
+          await this.checkTask()
+          return await this.getStatusSummary(false)
+        }
+
+        return summary
       })
 
     // 确定检查间隔
