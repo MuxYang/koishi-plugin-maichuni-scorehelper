@@ -182,6 +182,16 @@ export const Config = Schema.intersect([
           Schema.object({}),
         ]),
       ]).description('其他数据源配置'),
+    }),
+    Schema.object({
+      dataSource: Schema.const('awmc'),
+    }),
+  ]),
+
+  // 检测窗口期（仅自定义源可配置，内置源固定 10 分钟）
+  Schema.union([
+    Schema.object({
+      dataSource: Schema.const('other').required(),
       statusWindow: Schema.number()
         .default(10)
         .min(1)
@@ -189,6 +199,9 @@ export const Config = Schema.intersect([
     }),
     Schema.object({
       dataSource: Schema.const('awmc'),
+    }),
+    Schema.object({
+      dataSource: Schema.const('awmc-lite'),
     }),
   ]),
 
@@ -1005,16 +1018,12 @@ export class MaimaiStatus extends Service {
       // 判定窗口内所有采样点的一致状态
       const allUpInWindow = statusHistory.every(h => h.allUp)
       const allDownInWindow = statusHistory.every(h => h.allDown)
-      const allMaintenanceInWindow = statusHistory.every(h => h.allMaintenance)
-      const allPendingInWindow = statusHistory.every(h => h.allPending)
 
-      let targetStatus: 'ONLINE' | 'OFFLINE' | 'MAINTENANCE' | 'UNSTABLE' | null = null
+      let targetStatus: 'ONLINE' | 'OFFLINE' | null = null
       if (allUpInWindow) targetStatus = 'ONLINE'
       else if (allDownInWindow) targetStatus = 'OFFLINE'
-      else if (allMaintenanceInWindow) targetStatus = 'MAINTENANCE'
-      else if (allPendingInWindow) targetStatus = 'UNSTABLE'
 
-      // 窗口内不一致 → 不推送，视为未确认变更
+      // 窗口内不一致或为 MAINTENANCE/UNSTABLE → 不推送
       if (!targetStatus) return
 
       if (queryInterrupted) {
@@ -1028,13 +1037,7 @@ export class MaimaiStatus extends Service {
       // 与前一状态相同 → 跳过
       if (targetStatus === lastNotifiedStatus) return
 
-      const statusTextMap: Record<string, string> = {
-        'ONLINE': this.t('online'),
-        'OFFLINE': this.t('offline'),
-        'MAINTENANCE': this.t('maintenance'),
-        'UNSTABLE': this.t('pending'),
-      }
-      const statusText = statusTextMap[targetStatus]
+      const statusText = targetStatus === 'ONLINE' ? this.t('online') : this.t('offline')
       const message = `${groupName} ${statusText}`
 
       this.logDebug(`[${groupName}] ${statusText}`)
