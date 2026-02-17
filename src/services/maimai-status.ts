@@ -182,16 +182,6 @@ export const Config = Schema.intersect([
           Schema.object({}),
         ]),
       ]).description('其他数据源配置'),
-    }),
-    Schema.object({
-      dataSource: Schema.const('awmc'),
-    }),
-  ]),
-
-  // 检测窗口期（仅自定义源可配置，内置源固定 10 分钟）
-  Schema.union([
-    Schema.object({
-      dataSource: Schema.const('other').required(),
       statusWindow: Schema.number()
         .default(10)
         .min(1)
@@ -199,9 +189,6 @@ export const Config = Schema.intersect([
     }),
     Schema.object({
       dataSource: Schema.const('awmc'),
-    }),
-    Schema.object({
-      dataSource: Schema.const('awmc-lite'),
     }),
   ]),
 
