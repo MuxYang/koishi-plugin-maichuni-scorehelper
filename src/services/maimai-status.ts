@@ -144,7 +144,7 @@ export const Config = Schema.intersect([
     ]).default('awmc').description('数据源'),
   }).description('数据源设置'),
 
-  // 其他数据源配置（条件显示）
+  // 其他数据源配置（仅 dataSource = other 时显示）
   Schema.union([
     Schema.object({
       dataSource: Schema.const('awmc').required(),
@@ -155,7 +155,6 @@ export const Config = Schema.intersect([
     Schema.object({
       dataSource: Schema.const('other').required(),
       otherSource: Schema.intersect([
-        // 基础配置
         Schema.object({
           preset: Schema.union([
             Schema.const('uptime-kuma').description('Uptime Kuma'),
@@ -169,7 +168,6 @@ export const Config = Schema.intersect([
             .min(0)
             .description('检查间隔（秒），0 = 仅手动查询'),
         }),
-        // 自定义服务特有配置（仅 preset = custom 时显示）
         Schema.union([
           Schema.object({
             preset: Schema.const('custom').required(),
@@ -182,10 +180,6 @@ export const Config = Schema.intersect([
           Schema.object({}),
         ]),
       ]).description('其他数据源配置'),
-      statusWindow: Schema.number()
-        .default(10)
-        .min(1)
-        .description('检测窗口期（分钟）：窗口内状态全部一致才视为状态变更'),
     }),
     Schema.object({
       dataSource: Schema.const('awmc'),
@@ -197,40 +191,51 @@ export const Config = Schema.intersect([
     enablePush: Schema.boolean().default(false).description('启用状态变化推送通知'),
   }).description('推送设置'),
 
-  // 推送目标及频率限制（条件显示）
+  // enablePush = true → 推送目标 + 频率限制开关
   Schema.union([
-    Schema.intersect([
-      Schema.object({
-        enablePush: Schema.const(true).required(),
-        pushTargets: Schema.array(Schema.string())
-          .role('table')
-          .description('推送目标，格式: user:ID 或 group:ID'),
-        enableRateLimit: Schema.boolean()
-          .default(true)
-          .description('启用通知频率限制（防止状态反复跳变时刷屏）'),
-      }),
-      Schema.union([
-        Schema.object({
-          enableRateLimit: Schema.const(true).required(),
-          rateLimitWindow: Schema.number()
-            .default(60)
-            .min(10)
-            .description('频率限制窗口（分钟）：在此时间内统计通知次数'),
-          rateLimitCount: Schema.number()
-            .default(3)
-            .min(1)
-            .description('频率限制次数：窗口内最多发送的通知次数'),
-          rateLimitPause: Schema.number()
-            .default(30)
-            .min(5)
-            .description('频率限制暂停时间（分钟）：超过次数后暂停推送的时长'),
-        }),
-        Schema.object({}),
-      ]),
-    ]),
     Schema.object({
-      enablePush: Schema.const(false),
+      enablePush: Schema.const(true).required(),
+      pushTargets: Schema.array(Schema.string())
+        .role('table')
+        .description('推送目标，格式: user:ID 或 group:ID'),
+      enableRateLimit: Schema.boolean()
+        .default(true)
+        .description('启用通知频率限制（防止状态反复跳变时刷屏）'),
     }),
+    Schema.object({}),
+  ]),
+
+  // enableRateLimit = true → 频率限制参数
+  Schema.union([
+    Schema.object({
+      enableRateLimit: Schema.const(true).required(),
+      rateLimitWindow: Schema.number()
+        .default(60)
+        .min(10)
+        .description('频率限制窗口（分钟）：在此时间内统计通知次数'),
+      rateLimitCount: Schema.number()
+        .default(3)
+        .min(1)
+        .description('频率限制次数：窗口内最多发送的通知次数'),
+      rateLimitPause: Schema.number()
+        .default(30)
+        .min(5)
+        .description('频率限制暂停时间（分钟）：超过次数后暂停推送的时长'),
+    }),
+    Schema.object({}),
+  ]),
+
+  // 检测窗口期（仅自定义源 + 频率限制开启时显示）
+  Schema.union([
+    Schema.object({
+      dataSource: Schema.const('other').required(),
+      enableRateLimit: Schema.const(true).required(),
+      statusWindow: Schema.number()
+        .default(10)
+        .min(1)
+        .description('检测窗口期（分钟）：窗口内状态全部一致才视为状态变更'),
+    }),
+    Schema.object({}),
   ]),
 ])
 
