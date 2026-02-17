@@ -50,13 +50,7 @@ export function encrypt(data: EncryptedCredentials, authToken: string): string {
     return combined.toString('base64')
 }
 
-/**
- * Decrypt token and validate timestamp
- * Returns null if decryption fails or token expired
- */
-/**
- * Decrypt result type
- */
+/** Decrypt result type */
 export type DecryptResult =
     | { success: true; data: EncryptedCredentials }
     | { success: false; error: string }

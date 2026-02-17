@@ -118,8 +118,6 @@ declare module 'koishi' {
     }
 }
 
-
-
 export class ChunithmQuery extends Service {
     static inject = ['http', 'database']
 
@@ -225,10 +223,7 @@ export class ChunithmQuery extends Service {
         const tryLxns = async () => {
             // 1. User Token (优先级最高，使用个人 API)
             if (userToken?.lxns_token) {
-                const res = await this.queryWithLxnsToken(userToken.lxns_token)
-                if (res.data) return res
-                if (res.error) return res
-                return res
+                return this.queryWithLxnsToken(userToken.lxns_token)
             }
 
             // 2. Dev Token - 绑定了好友码时直接通过好友码查询
@@ -462,7 +457,7 @@ export class ChunithmQuery extends Service {
                 normalized.nickname = normalized.nickname || playerInfo.name
                 normalized.rating = normalized.rating || playerInfo.rating
                 if (playerInfo.character?.id) {
-                    ; (normalized as any).avatar_url = `https://assets2.lxns.net/chunithm/character/${playerInfo.character.id}.png`
+                    (normalized as any).avatar_url = `https://assets2.lxns.net/chunithm/character/${playerInfo.character.id}.png`
                 }
             }
 
@@ -581,7 +576,7 @@ export class ChunithmQuery extends Service {
                 normalized.nickname = normalized.nickname || playerInfo.name
                 normalized.rating = normalized.rating || playerInfo.rating
                 if (playerInfo.icon?.id) {
-                    ; (normalized as any).avatar_url = `https://assets2.lxns.net/chunithm/icon/${playerInfo.icon.id}.png`
+                    (normalized as any).avatar_url = `https://assets2.lxns.net/chunithm/icon/${playerInfo.icon.id}.png`
                 }
             }
 

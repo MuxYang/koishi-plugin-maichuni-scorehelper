@@ -138,7 +138,9 @@ export class MaimaiQuery extends Service {
         if (this.queryConfig.debug) {
             this.ctx.logger('maimai-query').info('[DEBUG]', ...args)
         }
-    } async getTestData(): Promise<MaimaiB50Data | null> {
+    }
+
+    async getTestData(): Promise<MaimaiB50Data | null> {
         try {
             const data = await this.ctx.http.get<MaimaiB50Data>(DF_TEST_DATA, {
                 headers: { 'User-Agent': this.UA },
@@ -216,10 +218,7 @@ export class MaimaiQuery extends Service {
         const tryLxns = async () => {
             // 1. User Token (优先级最高，使用个人 API)
             if (userToken?.lxns_token) {
-                const res = await this.queryWithLxnsToken(userToken.lxns_token)
-                if (res.data) return res
-                if (res.error) return res
-                return res
+                return this.queryWithLxnsToken(userToken.lxns_token)
             }
 
             // 2. Dev Token - 绑定了好友码时直接通过好友码查询
@@ -447,7 +446,7 @@ export class MaimaiQuery extends Service {
                 normalized.nickname = normalized.nickname || playerInfo.name
                 normalized.rating = normalized.rating || playerInfo.rating
                 if (playerInfo.icon?.id) {
-                    ; (normalized as any).avatar_url = `https://assets2.lxns.net/maimai/icon/${playerInfo.icon.id}.png`
+                    (normalized as any).avatar_url = `https://assets2.lxns.net/maimai/icon/${playerInfo.icon.id}.png`
                 }
             }
 

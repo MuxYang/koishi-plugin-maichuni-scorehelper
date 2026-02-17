@@ -47,10 +47,9 @@ declare module 'koishi' {
 }
 
 
-
 export class SongDataManager extends Service {
     static inject = ['http', 'database']
-    
+
     private readonly UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 
     constructor(ctx: Context) {
@@ -176,41 +175,32 @@ export class SongDataManager extends Service {
         const storedEtag = metadata.length > 0 ? metadata[0].etag : null
 
         try {
-            // Check if data has changed using If-None-Match header
             const headers: Record<string, string> = {
                 'User-Agent': this.UA
             }
-
             if (storedEtag) {
                 headers['If-None-Match'] = storedEtag
             }
 
-            const response = await fetch(apiUrl, {
-                method: 'GET',
-                headers
+            const response = await this.ctx.http('GET', apiUrl, {
+                headers,
+                // Allow 304 to pass through without throwing
+                validateStatus: (status) => status === 200 || status === 304,
             })
 
             if (response.status === 304) {
-                // Data unchanged, cache is valid
                 this.logger.debug(`${game} song cache is up-to-date (etag: ${storedEtag})`)
                 return true
             }
 
-            if (response.ok) {
-                // Data changed or no cache, update
-                const newEtag = response.headers.get('etag') || ''
-                const songs: SongData[] = await response.json()
+            const newEtag = response.headers?.get('etag') ?? ''
+            const songs: SongData[] = response.data
 
-                this.logger.info(`Updating ${game} song cache: ${songs.length} songs (etag: ${newEtag})`)
-                await this.updateCache(game, songs, newEtag)
-                return true
-            }
-
-            this.logger.warn(`Failed to fetch ${game} music data: ${response.status}`)
-            return false
+            this.logger.info(`Updating ${game} song cache: ${songs.length} songs (etag: ${newEtag})`)
+            await this.updateCache(game, songs, newEtag)
+            return true
         } catch (error) {
             this.logger.error(`Error validating ${game} cache:`, error)
-            // If network error but we have cached data, use it
             const hasCache = await this.ctx.database.get('song_cache', { game }, ['id'])
             return hasCache.length > 0
         }
@@ -223,18 +213,12 @@ export class SongDataManager extends Service {
         const apiUrl = game === 'maimai' ? DF_MAIMAI_MUSIC : DF_CHUNITHM_MUSIC
 
         try {
-            const response = await fetch(apiUrl, {
-                method: 'GET',
-                headers: { 'User-Agent': this.UA }
+            const response = await this.ctx.http('GET', apiUrl, {
+                headers: { 'User-Agent': this.UA },
             })
 
-            if (!response.ok) {
-                this.logger.error(`Failed to fetch ${game} music data: ${response.status}`)
-                return false
-            }
-
-            const etag = response.headers.get('etag') || ''
-            const songs: SongData[] = await response.json()
+            const etag = response.headers?.get('etag') ?? ''
+            const songs: SongData[] = response.data
 
             this.logger.info(`Force refreshing ${game} song cache: ${songs.length} songs`)
             await this.updateCache(game, songs, etag)

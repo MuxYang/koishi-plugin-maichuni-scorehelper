@@ -7,20 +7,20 @@ import { ScoreItem as MaimaiScoreItem, B50Data as MaimaiB50HtmlData } from '../.
  */
 export function registerMaimaiCommands(ctx: Context, config: MaichuniConfig) {
     return ctx.inject(['maimaiQuery', 'htmlframe', 'songDataManager', 'aliasManager', 'puppeteer'], (ctx) => {
-    const mai = ctx.command('mai', '舞萌 DX 查分指令')
-        .usage('使用 mai.b50 查询 Best 50\n使用 mai.calc 计算容错\n使用 mai.alias 管理别名')
+        const mai = ctx.command('mai', '舞萌 DX 查分指令')
+            .usage('使用 mai.b50 查询 Best 50\n使用 mai.calc 计算容错\n使用 mai.alias 管理别名')
 
-    // B50 command group
-    registerB50Commands(ctx, config)
+        // B50 command group
+        registerB50Commands(ctx, config)
 
-    // AP50/FC50 commands
-    registerApFcCommands(ctx, config)
+        // AP50/FC50 commands
+        registerApFcCommands(ctx, config)
 
-    // Calc command
-    registerCalcCommand(ctx, config)
+        // Calc command
+        registerCalcCommand(ctx, config)
 
-    // Alias management
-    registerAliasCommands(ctx, config)
+        // Alias management
+        registerAliasCommands(ctx, config)
     })
 }
 
@@ -310,8 +310,6 @@ function registerAliasCommands(ctx: Context, config: MaichuniConfig) {
             return lines.join('\n')
         })
 }
-
-
 
 /**
  * Convert API response to Maimai B50 HTML data format

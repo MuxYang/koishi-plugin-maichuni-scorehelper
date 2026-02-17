@@ -37,7 +37,6 @@ declare module 'koishi' {
 }
 
 
-
 const SCORE_TEMPLATE = `
 <div class="grid rows-[1.75rem_1fr] rd-2xl of-hidden min-w-220px hover:scale-102 transition-transform-200 transition-ease will-change-transform" style="background:#f0f0f5;box-shadow:0 2px 8px rgba(0,0,0,0.15)">
     <div class="text-ellipsis of-hidden ws-nowrap flex items-center" style="background:var(--level-{levelIndex})">
@@ -75,19 +74,19 @@ const SCORE_TEMPLATE = `
  */
 const RATE_DISPLAY_MAP: Record<string, { label: string; color: string }> = {
     'sssp': { label: 'SSS+', color: '#b8860b' },  // Dark gold (rainbow handled separately)
-    'sss':  { label: 'SSS',  color: '#b8860b' },   // Dark gold
-    'ssp':  { label: 'SS+',  color: '#c49000' },   // Gold
-    'ss':   { label: 'SS',   color: '#a07800' },    // Deep gold
-    'sp':   { label: 'S+',   color: '#1976d2' },    // Blue
-    's':    { label: 'S',    color: '#1565c0' },     // Deep blue
-    'aaa':  { label: 'AAA',  color: '#c62828' },    // Deep red
-    'aa':   { label: 'AA',   color: '#d84315' },    // Deep orange
-    'a':    { label: 'A',    color: '#7b1fa2' },     // Deep purple
-    'bbb':  { label: 'BBB',  color: '#546e7a' },   // Blue-gray
-    'bb':   { label: 'BB',   color: '#546e7a' },
-    'b':    { label: 'B',    color: '#546e7a' },
-    'c':    { label: 'C',    color: '#78909c' },
-    'd':    { label: 'D',    color: '#78909c' },
+    'sss': { label: 'SSS', color: '#b8860b' },   // Dark gold
+    'ssp': { label: 'SS+', color: '#c49000' },   // Gold
+    'ss': { label: 'SS', color: '#a07800' },    // Deep gold
+    'sp': { label: 'S+', color: '#1976d2' },    // Blue
+    's': { label: 'S', color: '#1565c0' },     // Deep blue
+    'aaa': { label: 'AAA', color: '#c62828' },    // Deep red
+    'aa': { label: 'AA', color: '#d84315' },    // Deep orange
+    'a': { label: 'A', color: '#7b1fa2' },     // Deep purple
+    'bbb': { label: 'BBB', color: '#546e7a' },   // Blue-gray
+    'bb': { label: 'BB', color: '#546e7a' },
+    'b': { label: 'B', color: '#546e7a' },
+    'c': { label: 'C', color: '#78909c' },
+    'd': { label: 'D', color: '#78909c' },
 }
 
 /**
@@ -97,7 +96,7 @@ const SSS_CHAR_COLORS = ['#b8860b', '#1565c0', '#ad1457', '#c49000']
 
 export class HtmlFrame extends Service {
     static inject = ['imagecache']
-    
+
     private templates: Record<string, string> = {}
     private readonly templatePaths = {
         maimai: path.join(__dirname, '../../web_pic/maimai_b50_template.html'),
@@ -333,7 +332,7 @@ export class HtmlFrame extends Service {
                 }
             }
         }
-        
+
         // 如果没有本地缓存，使用灰色占位图而不是网络 URL
         if (!displayUrl) {
             displayUrl = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYwIiBoZWlnaHQ9IjE2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTYwIiBoZWlnaHQ9IjE2MCIgZmlsbD0iI2VlZSIvPjwvc3ZnPg=='
@@ -403,7 +402,7 @@ export class HtmlFrame extends Service {
                 }
             }
         }
-        
+
         // 如果没有本地缓存，使用灰色占位图而不是网络 URL
         if (!displayUrl) {
             displayUrl = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYwIiBoZWlnaHQ9IjE2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTYwIiBoZWlnaHQ9IjE2MCIgZmlsbD0iI2VlZSIvPjwvc3ZnPg=='

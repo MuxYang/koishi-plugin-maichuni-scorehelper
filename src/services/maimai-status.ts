@@ -251,7 +251,6 @@ interface CachedServiceNames {
 declare module 'koishi' {
   interface Context {
     maimaiStatus: MaimaiStatus
-    puppeteer: any
   }
 }
 
