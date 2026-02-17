@@ -124,6 +124,7 @@ export interface OtherSourceConfig {
 export interface Config {
   dataSource: 'awmc' | 'awmc-lite' | 'other'
   otherSource?: OtherSourceConfig
+  statusWindow?: number
   enablePush: boolean
   pushTargets?: string[]
   enableRateLimit?: boolean
@@ -181,6 +182,10 @@ export const Config = Schema.intersect([
           Schema.object({}),
         ]),
       ]).description('其他数据源配置'),
+      statusWindow: Schema.number()
+        .default(10)
+        .min(1)
+        .description('检测窗口期（分钟）：窗口内状态全部一致才视为状态变更'),
     }),
     Schema.object({
       dataSource: Schema.const('awmc'),
@@ -254,7 +259,7 @@ declare module 'koishi' {
   }
 }
 
-const STATUS_WINDOW_MS = 10 * 60 * 1000
+const BUILTIN_STATUS_WINDOW_MS = 10 * 60 * 1000
 const API_INTERVAL_MS = 10 * 60 * 1000
 
 export class MaimaiStatus extends Service {
@@ -280,6 +285,15 @@ export class MaimaiStatus extends Service {
     this.debugEnabled = config.debug ?? false
   }
 
+  /** 检测窗口期（ms）：内置源固定 10 分钟，自定义源可配置（最小 1 分钟） */
+  private get statusWindowMs(): number {
+    if (this.config.dataSource === 'awmc' || this.config.dataSource === 'awmc-lite') {
+      return BUILTIN_STATUS_WINDOW_MS
+    }
+    const minutes = Math.max(this.config.statusWindow ?? 10, 1)
+    return minutes * 60 * 1000
+  }
+
   private t(key: string): string {
     return I18N[this.locale]?.[key] || I18N['zh-CN'][key] || key
   }
@@ -297,6 +311,18 @@ export class MaimaiStatus extends Service {
   protected async start() {
     if (this.debugEnabled) {
       this.statusLogger.info(this.t('monitor-started'))
+    }
+
+    // 校验频率限制参数
+    if (this.config.enablePush && this.config.enableRateLimit !== false) {
+      const swMin = this.statusWindowMs / 60000
+      const rlw = this.config.rateLimitWindow ?? 60
+      const rlc = this.config.rateLimitCount ?? 3
+      if (rlc * swMin >= rlw) {
+        this.statusLogger.warn(
+          `rateLimitCount(${rlc}) × statusWindow(${swMin}min) >= rateLimitWindow(${rlw}min)，频率限制可能无法生效`
+        )
+      }
     }
 
     await this.loadCache()
@@ -955,7 +981,7 @@ export class MaimaiStatus extends Service {
       const allPending = totalCount > 0 && pendingCount === totalCount
 
       group.statusHistory.push({ timestamp: now, allUp, allDown, allMaintenance, allPending })
-      group.statusHistory = group.statusHistory.filter(h => now - h.timestamp < STATUS_WINDOW_MS)
+      group.statusHistory = group.statusHistory.filter(h => now - h.timestamp < this.statusWindowMs)
 
       await this.checkAndNotify(group, now)
     }
@@ -968,24 +994,27 @@ export class MaimaiStatus extends Service {
 
     const oldest = statusHistory[0]
     const windowDuration = now - oldest.timestamp
+    const windowMs = this.statusWindowMs
 
     const checkIntervalMs = (this.config.dataSource === 'awmc' || this.config.dataSource === 'awmc-lite')
       ? API_INTERVAL_MS
       : (this.config.otherSource?.checkInterval ?? 600) * 1000
 
     // 窗口就绪条件：时间跨度足够，或者检查间隔本身就大于等于窗口（单次检查代表足够时长）
-    if (windowDuration >= STATUS_WINDOW_MS || checkIntervalMs >= STATUS_WINDOW_MS) {
+    if (windowDuration >= windowMs || checkIntervalMs >= windowMs) {
+      // 判定窗口内所有采样点的一致状态
       const allUpInWindow = statusHistory.every(h => h.allUp)
       const allDownInWindow = statusHistory.every(h => h.allDown)
+      const allMaintenanceInWindow = statusHistory.every(h => h.allMaintenance)
+      const allPendingInWindow = statusHistory.every(h => h.allPending)
 
-      let targetStatus: 'ONLINE' | 'OFFLINE' | null = null
-      if (allUpInWindow) {
-        targetStatus = 'ONLINE'
-      } else if (allDownInWindow) {
-        targetStatus = 'OFFLINE'
-      }
+      let targetStatus: 'ONLINE' | 'OFFLINE' | 'MAINTENANCE' | 'UNSTABLE' | null = null
+      if (allUpInWindow) targetStatus = 'ONLINE'
+      else if (allDownInWindow) targetStatus = 'OFFLINE'
+      else if (allMaintenanceInWindow) targetStatus = 'MAINTENANCE'
+      else if (allPendingInWindow) targetStatus = 'UNSTABLE'
 
-      // 如果不是 ONLINE 或 OFFLINE，或者是 MAINTENANCE/UNSTABLE/PARTIAL，则不推送通知
+      // 窗口内不一致 → 不推送，视为未确认变更
       if (!targetStatus) return
 
       if (queryInterrupted) {
@@ -996,10 +1025,16 @@ export class MaimaiStatus extends Service {
         }
       }
 
+      // 与前一状态相同 → 跳过
       if (targetStatus === lastNotifiedStatus) return
 
-      const statusText = targetStatus === 'ONLINE' ? this.t('online') : this.t('offline')
-
+      const statusTextMap: Record<string, string> = {
+        'ONLINE': this.t('online'),
+        'OFFLINE': this.t('offline'),
+        'MAINTENANCE': this.t('maintenance'),
+        'UNSTABLE': this.t('pending'),
+      }
+      const statusText = statusTextMap[targetStatus]
       const message = `${groupName} ${statusText}`
 
       this.logDebug(`[${groupName}] ${statusText}`)
@@ -1016,7 +1051,7 @@ export class MaimaiStatus extends Service {
       group.statusHistory = []
     } else {
       if (this.debugEnabled) {
-        this.logDebug(`Window not ready: ${groupName} ${Math.round(windowDuration / 1000)}s < ${STATUS_WINDOW_MS / 1000}s`)
+        this.logDebug(`Window not ready: ${groupName} ${Math.round(windowDuration / 1000)}s < ${windowMs / 1000}s`)
       }
     }
   }
