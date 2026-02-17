@@ -22,7 +22,7 @@ export function registerLxCommands(ctx: Context, config: MaichuniConfig) {
 
             try {
                 // Verify token
-                const testResult = await testLxnsToken(token)
+                const testResult = await testLxnsToken(ctx, token)
                 if (!testResult.success) {
                     return `Token 验证失败: ${testResult.error || '无效的 Token'}`
                 }
@@ -100,16 +100,15 @@ export function registerLxCommands(ctx: Context, config: MaichuniConfig) {
 
             try {
                 // Verify friend code by querying lxns API
-                const response = await fetch(`https://maimai.lxns.net/api/v0/maimai/player/${friendCode}`, {
-                    method: 'GET',
-                    headers: { 'User-Agent': 'Mozilla/5.0' }
-                })
+                const playerData = await ctx.http.get(`https://maimai.lxns.net/api/v0/maimai/player/${friendCode}`, {
+                    headers: { 'User-Agent': 'Mozilla/5.0' },
+                    timeout: 15000
+                }).catch(() => null)
 
-                if (!response.ok) {
-                    return `好友码验证失败: 无法找到该好友码对应的玩家 (HTTP ${response.status})`
+                if (!playerData) {
+                    return '好友码验证失败: 无法找到该好友码对应的玩家'
                 }
 
-                const playerData = await response.json().catch(() => null)
                 const playerName = playerData?.data?.name || playerData?.name || '未知'
 
                 // Save to database
@@ -148,27 +147,24 @@ export function registerLxCommands(ctx: Context, config: MaichuniConfig) {
 /**
  * Test lxns Token validity
  */
-async function testLxnsToken(token: string): Promise<{
+async function testLxnsToken(ctx: Context, token: string): Promise<{
     success: boolean
     error?: string
 }> {
     try {
         // lxns API endpoint for profile/records
-        const response = await fetch('https://maimai.lxns.net/api/v0/user/maimai/player', {
-            method: 'GET',
+        const data = await ctx.http.get('https://maimai.lxns.net/api/v0/user/maimai/player', {
             headers: {
                 'Authorization': token,
                 'User-Agent': 'Mozilla/5.0'
-            }
+            },
+            timeout: 15000
         })
-
-        if (response.ok) {
-            return { success: true }
+        return { success: true }
+    } catch (e: any) {
+        if (e?.response?.status) {
+            return { success: false, error: `HTTP ${e.response.status}` }
         }
-
-        const data = await response.json().catch(() => ({}))
-        return { success: false, error: data.message || `HTTP ${response.status}` }
-    } catch (e) {
         return { success: false, error: '网络错误' }
     }
 }

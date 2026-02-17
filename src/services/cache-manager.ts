@@ -60,18 +60,15 @@ export class ImageCacheManager extends Service {
      * @returns 是否成功
      */
     private async fetchAndSave(url: string, cachePath: string, timeout: number = 10000): Promise<boolean> {
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), timeout)
         try {
-            const response = await fetch(url, { signal: controller.signal })
-            clearTimeout(timeoutId)
-            if (!response.ok) return false
-            const buffer = await response.arrayBuffer()
+            const buffer = await this.ctx.http.get(url, {
+                responseType: 'arraybuffer',
+                timeout,
+            }) as ArrayBuffer
             if (buffer.byteLength < 100) return false // 太小的可能是占位图
             await fs.writeFile(cachePath, Buffer.from(buffer))
             return true
         } catch {
-            clearTimeout(timeoutId)
             return false
         }
     }

@@ -67,7 +67,10 @@ const I18N: Record<string, Record<string, string>> = {
     'monitor-started': '舞萌状态监控已启动',
     'monitor-stopped': '舞萌状态监控已停止',
     'check-task-error': '检查任务出错',
-    'status-source-request-failed': '状态源请求失败。'
+    'status-source-request-failed': '状态源请求失败。',
+    'unknown-status-recheck': '检测到未知状态，正在重新检查...',
+    'rate-limit-paused': '通知频率过高，暂停推送',
+    'rate-limit-resumed': '通知推送已恢复'
   },
   'en-US': {
     'no-data': 'No server monitoring data available, please try again later.',
@@ -103,11 +106,10 @@ const I18N: Record<string, Record<string, string>> = {
     'monitor-started': 'Maimai status monitor started',
     'monitor-stopped': 'Maimai status monitor stopped',
     'check-task-error': 'Error in check task',
-    'status-source-request-failed': 'Status source request failed.'
-  },
-  'unknown-status-recheck': {
-    'zh-CN': '检测到未知状态，正在重新检查...',
-    'en-US': 'Unknown status detected, rechecking...'
+    'status-source-request-failed': 'Status source request failed.',
+    'unknown-status-recheck': 'Unknown status detected, rechecking...',
+    'rate-limit-paused': 'Notification rate limit reached, pausing push',
+    'rate-limit-resumed': 'Notification push resumed'
   }
 }
 
@@ -124,10 +126,14 @@ export interface Config {
   otherSource?: OtherSourceConfig
   enablePush: boolean
   pushTargets?: string[]
+  enableRateLimit?: boolean
+  rateLimitWindow?: number
+  rateLimitCount?: number
+  rateLimitPause?: number
   debug?: boolean
 }
 
-export const Config: Schema<Config> = Schema.intersect([
+export const Config = Schema.intersect([
   // 数据源选择
   Schema.object({
     dataSource: Schema.union([
@@ -186,14 +192,37 @@ export const Config: Schema<Config> = Schema.intersect([
     enablePush: Schema.boolean().default(false).description('启用状态变化推送通知'),
   }).description('推送设置'),
 
-  // 推送目标（条件显示）
+  // 推送目标及频率限制（条件显示）
   Schema.union([
-    Schema.object({
-      enablePush: Schema.const(true).required(),
-      pushTargets: Schema.array(Schema.string())
-        .role('table')
-        .description('推送目标，格式: user:ID 或 group:ID'),
-    }),
+    Schema.intersect([
+      Schema.object({
+        enablePush: Schema.const(true).required(),
+        pushTargets: Schema.array(Schema.string())
+          .role('table')
+          .description('推送目标，格式: user:ID 或 group:ID'),
+        enableRateLimit: Schema.boolean()
+          .default(true)
+          .description('启用通知频率限制（防止状态反复跳变时刷屏）'),
+      }),
+      Schema.union([
+        Schema.object({
+          enableRateLimit: Schema.const(true).required(),
+          rateLimitWindow: Schema.number()
+            .default(60)
+            .min(10)
+            .description('频率限制窗口（分钟）：在此时间内统计通知次数'),
+          rateLimitCount: Schema.number()
+            .default(3)
+            .min(1)
+            .description('频率限制次数：窗口内最多发送的通知次数'),
+          rateLimitPause: Schema.number()
+            .default(30)
+            .min(5)
+            .description('频率限制暂停时间（分钟）：超过次数后暂停推送的时长'),
+        }),
+        Schema.object({}),
+      ]),
+    ]),
     Schema.object({
       enablePush: Schema.const(false),
     }),
@@ -242,6 +271,9 @@ export class MaimaiStatus extends Service {
   private readonly UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
   private locale: string = 'zh-CN'
   private debugEnabled: boolean = false
+  // Rate limiting state
+  private notificationTimestamps: number[] = []
+  private rateLimitPausedUntil: number = 0
 
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'maimaiStatus')
@@ -281,7 +313,7 @@ export class MaimaiStatus extends Service {
 
         // If 'unknown' status exists, recheck and push status
         if (summary.includes(this.t('unknown'))) {
-          this.statusLogger.info(this.t('unknown-status-recheck'))
+          this.logDebug(this.t('unknown-status-recheck'))
           await this.checkTask()
           return await this.getStatusSummary(false)
         }
@@ -992,6 +1024,40 @@ export class MaimaiStatus extends Service {
 
   private async pushNotification(message: string) {
     if (!this.config.enablePush || !this.config.pushTargets) return
+
+    // Rate limiting check
+    if (this.config.enableRateLimit !== false) {
+      const now = Date.now()
+
+      // Check if currently paused
+      if (now < this.rateLimitPausedUntil) {
+        this.logDebug(`Rate limit active, paused until ${new Date(this.rateLimitPausedUntil).toLocaleTimeString()}`)
+        return
+      }
+
+      // If we were paused and now resumed, log it
+      if (this.rateLimitPausedUntil > 0) {
+        this.logDebug(this.t('rate-limit-resumed'))
+        this.rateLimitPausedUntil = 0
+      }
+
+      const windowMs = (this.config.rateLimitWindow ?? 60) * 60 * 1000
+      const maxCount = this.config.rateLimitCount ?? 3
+      const pauseMs = (this.config.rateLimitPause ?? 30) * 60 * 1000
+
+      // Clean old timestamps outside the window
+      this.notificationTimestamps = this.notificationTimestamps.filter(t => now - t < windowMs)
+
+      // Check if limit exceeded
+      if (this.notificationTimestamps.length >= maxCount) {
+        this.rateLimitPausedUntil = now + pauseMs
+        this.statusLogger.warn(`${this.t('rate-limit-paused')} (${maxCount} in ${this.config.rateLimitWindow ?? 60}min, pause ${this.config.rateLimitPause ?? 30}min)`)
+        return
+      }
+
+      // Record this notification
+      this.notificationTimestamps.push(now)
+    }
 
     const bot = this.ctx.bots[0]
     if (!bot) {

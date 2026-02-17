@@ -48,8 +48,8 @@
   },
   "koishi": {
     "description": {
-      "zh-CN": "舞萌中二节奏分数辅助插件（基础模板）",
-      "en": "Maimai & Chunithm score helper plugin (template)"
+      "zh-CN": "舞萌中二节奏相关插件",
+      "en": "Maimai & Chunithm related plugin"
     },
     "icon": "game",
     "service": {

@@ -39,7 +39,7 @@ export function registerFishCommands(ctx: Context, config: MaichuniConfig) {
 
             try {
                 // Test login to DivingFish
-                const loginResult = await testDivingFishLogin(creds.username, creds.password)
+                const loginResult = await testDivingFishLogin(ctx, creds.username, creds.password)
                 if (!loginResult.success) {
                     return `登录验证失败: ${loginResult.error || '账号或密码错误'}`
                 }
@@ -76,7 +76,7 @@ export function registerFishCommands(ctx: Context, config: MaichuniConfig) {
 
             try {
                 // Verify token by making a test request
-                const testResult = await testImportToken(token)
+                const testResult = await testImportToken(ctx, token)
                 if (!testResult.success) {
                     return `Token 验证失败: ${testResult.error || '无效的 Token'}`
                 }
@@ -178,27 +178,25 @@ export function registerFishCommands(ctx: Context, config: MaichuniConfig) {
 /**
  * Test DivingFish login credentials
  */
-async function testDivingFishLogin(username: string, password: string): Promise<{
+async function testDivingFishLogin(ctx: Context, username: string, password: string): Promise<{
     success: boolean
     error?: string
 }> {
     try {
-        const response = await fetch('https://www.diving-fish.com/api/maimaidxprober/login', {
-            method: 'POST',
+        await ctx.http.post('https://www.diving-fish.com/api/maimaidxprober/login', {
+            username, password
+        }, {
             headers: {
                 'Content-Type': 'application/json',
                 'User-Agent': 'Mozilla/5.0'
             },
-            body: JSON.stringify({ username, password })
+            timeout: 15000
         })
-
-        if (response.ok) {
-            return { success: true }
+        return { success: true }
+    } catch (e: any) {
+        if (e?.response?.status) {
+            return { success: false, error: `HTTP ${e.response.status}` }
         }
-
-        const data = await response.json().catch(() => ({}))
-        return { success: false, error: data.message || `HTTP ${response.status}` }
-    } catch (e) {
         return { success: false, error: '网络错误' }
     }
 }
@@ -206,25 +204,23 @@ async function testDivingFishLogin(username: string, password: string): Promise<
 /**
  * Test Import Token validity
  */
-async function testImportToken(token: string): Promise<{
+async function testImportToken(ctx: Context, token: string): Promise<{
     success: boolean
     error?: string
 }> {
     try {
-        const response = await fetch('https://www.diving-fish.com/api/maimaidxprober/player/records', {
-            method: 'GET',
+        await ctx.http.get('https://www.diving-fish.com/api/maimaidxprober/player/records', {
             headers: {
                 'Import-Token': token,
                 'User-Agent': 'Mozilla/5.0'
-            }
+            },
+            timeout: 15000
         })
-
-        if (response.ok) {
-            return { success: true }
+        return { success: true }
+    } catch (e: any) {
+        if (e?.response?.status) {
+            return { success: false, error: `HTTP ${e.response.status}` }
         }
-
-        return { success: false, error: `HTTP ${response.status}` }
-    } catch (e) {
         return { success: false, error: '网络错误' }
     }
 }
