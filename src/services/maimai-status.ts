@@ -193,43 +193,51 @@ export const Config = Schema.intersect([
     Schema.object({
       enablePush: Schema.const(false).required(),
     }),
-    // 推送开启：所有字段都提供默认值，避免配置验证失败
-    Schema.object({
-      enablePush: Schema.const(true).required(),
-      pushTargets: Schema.array(Schema.string())
-        .required()
-        .min(1)
-        .role('table')
-        .description('推送目标，格式: user:ID 或 group:ID'),
-      dataSource: Schema.union([
-        Schema.const('awmc').description('status.awmc.cc'),
-        Schema.const('awmc-lite').description('status.awmc.cc[lite]'),
-        Schema.const('other').description('其他'),
-      ]).default('awmc').description('数据源'),
-      checkInterval: Schema.number()
-        .default(10)
-        .min(1)
-        .description('请求间隔（分钟，仅其他源）：每隔多长时间请求一次状态源'),
-      statusWindow: Schema.number()
-        .default(10)
-        .min(0)
-        .description('判定窗口（分钟，仅其他源）：窗口内状态全部一致才视为状态变更，为 0 时立即通报'),
-      enableRateLimit: Schema.boolean()
-        .default(true)
-        .description('启用通知频率限制（防止状态反复跳变时刷屏）'),
-      rateLimitWindow: Schema.number()
-        .default(60)
-        .min(1)
-        .description('统计时长（分钟）：在此时间内统计通知次数'),
-      rateLimitCount: Schema.number()
-        .default(3)
-        .min(0)
-        .description('最多通知次数：窗口内最多发送的通知次数，为 0 时关闭该功能'),
-      rateLimitPause: Schema.number()
-        .default(30)
-        .min(1)
-        .description('暂停时长（分钟）：超过次数后暂停推送的时长'),
-    }),
+    // 推送开启
+    Schema.intersect([
+      Schema.object({
+        enablePush: Schema.const(true).required(),
+        pushTargets: Schema.array(Schema.string())
+          .required()
+          .min(1)
+          .role('table')
+          .description('推送目标，格式: user:ID 或 group:ID'),
+      }),
+      // 其他数据源在推送启用时的扩展配置（仅 dataSource = other 时显示）
+      Schema.union([
+        Schema.object({
+          dataSource: Schema.const('other').required(),
+          enablePush: Schema.const(true).required(),
+          checkInterval: Schema.number()
+            .default(10)
+            .min(1)
+            .description('请求间隔（分钟）：每隔多长时间请求一次状态源'),
+          statusWindow: Schema.number()
+            .default(10)
+            .min(0)
+            .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更，为 0 时立即通报'),
+        }),
+        Schema.object({}),
+      ]),
+      // 频率限制配置
+      Schema.object({
+        enableRateLimit: Schema.boolean()
+          .default(true)
+          .description('启用通知频率限制（防止状态反复跳变时刷屏）'),
+        rateLimitWindow: Schema.number()
+          .default(60)
+          .min(1)
+          .description('统计时长（分钟）：在此时间内统计通知次数'),
+        rateLimitCount: Schema.number()
+          .default(3)
+          .min(0)
+          .description('最多通知次数：窗口内最多发送的通知次数，为 0 时关闭该功能'),
+        rateLimitPause: Schema.number()
+          .default(30)
+          .min(1)
+          .description('暂停时长（分钟）：超过次数后暂停推送的时长'),
+      }),
+    ]),
   ]),
 ])
 
