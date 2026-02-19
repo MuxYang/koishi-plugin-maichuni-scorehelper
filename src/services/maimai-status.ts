@@ -70,7 +70,10 @@ const I18N: Record<string, Record<string, string>> = {
     'status-source-request-failed': '状态源请求失败。',
     'unknown-status-recheck': '检测到未知状态，正在重新检查...',
     'rate-limit-paused': '通知频率过高，暂停推送',
-    'rate-limit-resumed': '通知推送已恢复'
+    'rate-limit-resumed': '通知推送已恢复',
+    'quiet-hours': '当前处于维护时段（UTC+8 3:00-8:00），暂不提供状态查询',
+    'quiet-hours-sync': '维护时段（UTC+8 3:00-8:00），跳过状态同步',
+    'startup-suppress': '启动抑制期内，跳过推送'
   },
   'en-US': {
     'no-data': 'No server monitoring data available, please try again later.',
@@ -109,7 +112,10 @@ const I18N: Record<string, Record<string, string>> = {
     'status-source-request-failed': 'Status source request failed.',
     'unknown-status-recheck': 'Unknown status detected, rechecking...',
     'rate-limit-paused': 'Notification rate limit reached, pausing push',
-    'rate-limit-resumed': 'Notification push resumed'
+    'rate-limit-resumed': 'Notification push resumed',
+    'quiet-hours': 'Maintenance period (UTC+8 3:00-8:00), status query unavailable',
+    'quiet-hours-sync': 'Maintenance period (UTC+8 3:00-8:00), skipping sync',
+    'startup-suppress': 'Startup suppression active, skipping push'
   }
 }
 
@@ -118,15 +124,15 @@ export interface OtherSourceConfig {
   webUrl?: string
   apiUrl?: string
   apiFormat?: string
-  checkInterval?: number
 }
 
 export interface Config {
   dataSource: 'awmc' | 'awmc-lite' | 'other'
   otherSource?: OtherSourceConfig
-  statusWindow?: number
   enablePush: boolean
   pushTargets?: string[]
+  checkInterval?: number
+  statusWindow?: number
   enableRateLimit?: boolean
   rateLimitWindow?: number
   rateLimitCount?: number
@@ -135,7 +141,7 @@ export interface Config {
 }
 
 export const Config = Schema.intersect([
-  // 数据源选择
+  // 数据源设置
   Schema.object({
     dataSource: Schema.union([
       Schema.const('awmc').description('status.awmc.cc'),
@@ -147,12 +153,6 @@ export const Config = Schema.intersect([
   // 其他数据源配置（仅 dataSource = other 时显示）
   Schema.union([
     Schema.object({
-      dataSource: Schema.const('awmc').required(),
-    }),
-    Schema.object({
-      dataSource: Schema.const('awmc-lite').required(),
-    }),
-    Schema.object({
       dataSource: Schema.const('other').required(),
       otherSource: Schema.intersect([
         Schema.object({
@@ -163,10 +163,6 @@ export const Config = Schema.intersect([
             Schema.const('custom').description('自定义'),
           ]).default('uptime-kuma').description('服务类型'),
           apiUrl: Schema.string().required().description('API 地址'),
-          checkInterval: Schema.number()
-            .default(600)
-            .min(0)
-            .description('检查间隔（秒），0 = 仅手动查询'),
         }),
         Schema.union([
           Schema.object({
@@ -181,9 +177,7 @@ export const Config = Schema.intersect([
         ]),
       ]).description('其他数据源配置'),
     }),
-    Schema.object({
-      dataSource: Schema.const('awmc'),
-    }),
+    Schema.object({}),
   ]),
 
   // 推送设置
@@ -191,13 +185,38 @@ export const Config = Schema.intersect([
     enablePush: Schema.boolean().default(false).description('启用状态变化推送通知'),
   }).description('推送设置'),
 
-  // enablePush = true → 推送目标 + 频率限制开关
+  // enablePush = true → 推送目标
   Schema.union([
     Schema.object({
       enablePush: Schema.const(true).required(),
       pushTargets: Schema.array(Schema.string())
         .role('table')
         .description('推送目标，格式: user:ID 或 group:ID'),
+    }),
+    Schema.object({}),
+  ]),
+
+  // enablePush = true AND dataSource = other → 请求间隔与判定窗口（不受防抖开关影响）
+  Schema.union([
+    Schema.object({
+      enablePush: Schema.const(true).required(),
+      dataSource: Schema.const('other').required(),
+      checkInterval: Schema.number()
+        .default(10)
+        .min(1)
+        .description('请求间隔（分钟）：每隔多长时间请求一次状态源'),
+      statusWindow: Schema.number()
+        .default(10)
+        .min(0)
+        .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更，为 0 时状态变更后立即通报'),
+    }),
+    Schema.object({}),
+  ]),
+
+  // enablePush = true → 频率限制开关
+  Schema.union([
+    Schema.object({
+      enablePush: Schema.const(true).required(),
       enableRateLimit: Schema.boolean()
         .default(true)
         .description('启用通知频率限制（防止状态反复跳变时刷屏）'),
@@ -211,29 +230,16 @@ export const Config = Schema.intersect([
       enableRateLimit: Schema.const(true).required(),
       rateLimitWindow: Schema.number()
         .default(60)
-        .min(10)
-        .description('频率限制窗口（分钟）：在此时间内统计通知次数'),
+        .min(1)
+        .description('统计时长（分钟）：在此时间内统计通知次数'),
       rateLimitCount: Schema.number()
         .default(3)
-        .min(1)
-        .description('频率限制次数：窗口内最多发送的通知次数'),
+        .min(0)
+        .description('最多通知次数：窗口内最多发送的通知次数，为 0 时关闭该功能'),
       rateLimitPause: Schema.number()
         .default(30)
-        .min(5)
-        .description('频率限制暂停时间（分钟）：超过次数后暂停推送的时长'),
-    }),
-    Schema.object({}),
-  ]),
-
-  // 检测窗口期（仅自定义源 + 频率限制开启时显示）
-  Schema.union([
-    Schema.object({
-      dataSource: Schema.const('other').required(),
-      enableRateLimit: Schema.const(true).required(),
-      statusWindow: Schema.number()
-        .default(10)
         .min(1)
-        .description('检测窗口期（分钟）：窗口内状态全部一致才视为状态变更'),
+        .description('暂停时长（分钟）：超过次数后暂停推送的时长'),
     }),
     Schema.object({}),
   ]),
@@ -251,7 +257,6 @@ interface ServiceGroup {
   ids: number[]
   lastNotifiedStatus: 'ONLINE' | 'OFFLINE' | 'MAINTENANCE' | 'UNSTABLE' | null
   statusHistory: { timestamp: number; allUp: boolean; allDown: boolean; allMaintenance: boolean; allPending: boolean }[]
-  queryInterrupted: boolean
 }
 
 interface CachedServiceNames {
@@ -264,16 +269,17 @@ declare module 'koishi' {
   }
 }
 
-const BUILTIN_STATUS_WINDOW_MS = 10 * 60 * 1000
-const API_INTERVAL_MS = 10 * 60 * 1000
+const BUILTIN_STATUS_WINDOW_MS = 10 * 60 * 1000   // 内置源判定窗口：10 分钟
+const BUILTIN_CHECK_INTERVAL_MS = 10 * 60 * 1000   // 内置源请求间隔：10 分钟
+const BACKGROUND_POLL_MS = 60 * 60 * 1000           // 推送关闭时后台轮询：60 分钟
 
 export class MaimaiStatus extends Service {
   static inject = ['http', 'database']
 
   private statusLogger: Logger
   private timer: NodeJS.Timeout | null = null
-  private isFirstCheck = true
-  private lastManualQueryTime = 0
+  private startTime: number = 0
+  private unknownRechecked: boolean = false
   private groups: Map<string, ServiceGroup> = new Map()
   private lastUptimeData: Record<string, number> = {}
   private cachedServiceNames: CachedServiceNames = {}
@@ -290,13 +296,55 @@ export class MaimaiStatus extends Service {
     this.debugEnabled = config.debug ?? false
   }
 
-  /** 检测窗口期（ms）：内置源固定 10 分钟，自定义源可配置（最小 1 分钟） */
+  // ─── 辅助判断方法 ──────────────────────────────────
+
+  /** 是否为内置数据源 */
+  private isBuiltinSource(): boolean {
+    return this.config.dataSource === 'awmc' || this.config.dataSource === 'awmc-lite'
+  }
+
+  /** 请求间隔（ms）：内置源 10 分钟，其他源由用户配置（默认 10 分钟） */
+  private getCheckIntervalMs(): number {
+    if (this.isBuiltinSource()) return BUILTIN_CHECK_INTERVAL_MS
+    return (this.config.checkInterval ?? 10) * 60 * 1000
+  }
+
+  /** 判定窗口（ms）：内置源固定 10 分钟，其他源可配置（0 = 立即通报） */
   private get statusWindowMs(): number {
-    if (this.config.dataSource === 'awmc' || this.config.dataSource === 'awmc-lite') {
-      return BUILTIN_STATUS_WINDOW_MS
-    }
-    const minutes = Math.max(this.config.statusWindow ?? 10, 1)
+    if (this.isBuiltinSource()) return BUILTIN_STATUS_WINDOW_MS
+    const minutes = this.config.statusWindow ?? 10
+    if (minutes === 0) return 0
     return minutes * 60 * 1000
+  }
+
+  /** 启动抑制期长度（ms）：2 个判定窗口（窗口为 0 时使用 2 个请求间隔） */
+  private get suppressDuration(): number {
+    const windowMs = this.statusWindowMs
+    if (windowMs === 0) return 2 * this.getCheckIntervalMs()
+    return 2 * windowMs
+  }
+
+  /** 是否处于启动抑制期 */
+  private isInSuppressPeriod(): boolean {
+    return Date.now() < this.startTime + this.suppressDuration
+  }
+
+  /** 是否处于 GMT+8 3:00-8:00 维护时段（仅内置源） */
+  private isQuietHours(): boolean {
+    if (!this.isBuiltinSource()) return false
+    const now = new Date()
+    const gmt8Minutes = (now.getUTCHours() * 60 + now.getUTCMinutes() + 480) % 1440
+    const gmt8Hour = Math.floor(gmt8Minutes / 60)
+    return gmt8Hour >= 3 && gmt8Hour < 8
+  }
+
+  /** 是否存在状态未知的服务组 */
+  private hasUnknownGroups(): boolean {
+    if (this.groups.size === 0) return true
+    for (const group of this.groups.values()) {
+      if (group.statusHistory.length === 0) return true
+    }
+    return false
   }
 
   private t(key: string): string {
@@ -314,18 +362,22 @@ export class MaimaiStatus extends Service {
   }
 
   protected async start() {
+    this.startTime = Date.now()
+
     if (this.debugEnabled) {
       this.statusLogger.info(this.t('monitor-started'))
     }
 
     // 校验频率限制参数
-    if (this.config.enablePush && this.config.enableRateLimit !== false) {
-      const swMin = this.statusWindowMs / 60000
+    if (this.config.enablePush && this.config.enableRateLimit) {
+      const windowMin = this.statusWindowMs > 0
+        ? this.statusWindowMs / 60000
+        : this.getCheckIntervalMs() / 60000
       const rlw = this.config.rateLimitWindow ?? 60
       const rlc = this.config.rateLimitCount ?? 3
-      if (rlc * swMin >= rlw) {
+      if (rlc > 0 && rlc * windowMin >= rlw) {
         this.statusLogger.warn(
-          `rateLimitCount(${rlc}) × statusWindow(${swMin}min) >= rateLimitWindow(${rlw}min)，频率限制可能无法生效`
+          `rateLimitCount(${rlc}) × statusWindow(${windowMin}min) >= rateLimitWindow(${rlw}min)，频率限制可能无法生效`
         )
       }
     }
@@ -336,39 +388,39 @@ export class MaimaiStatus extends Service {
     this.ctx.command('maisms', '查看舞萌 DX 服务器状态')
       .alias('maimai-status')
       .action(async () => {
-        this.lastManualQueryTime = Date.now()
-        // Perform the initial status check
-        await this.checkTask()
-        const summary = await this.getStatusSummary(false) // false = no repeated checkTask calls
+        // GMT+8 3:00-8:00 静默时段，阻断手动查询
+        if (this.isQuietHours()) {
+          return this.t('quiet-hours')
+        }
 
-        // If 'unknown' status exists, recheck and push status
-        if (summary.includes(this.t('unknown'))) {
+        await this.doCheck()
+        const summary = await this.getStatusSummary(false)
+
+        // 如果存在未知状态且未重试过，额外请求一次
+        if (summary.includes(this.t('unknown')) && !this.unknownRechecked) {
+          this.unknownRechecked = true
           this.logDebug(this.t('unknown-status-recheck'))
-          await this.checkTask()
+          await this.doCheck()
           return await this.getStatusSummary(false)
         }
 
         return summary
       })
 
-    // 确定检查间隔
-    let intervalMs: number
-    if (this.config.dataSource === 'awmc' || this.config.dataSource === 'awmc-lite') {
-      intervalMs = API_INTERVAL_MS // AWMC 和 AWMC-Lite 固定 10 分钟
+    // 确定轮询间隔
+    let pollIntervalMs: number
+    if (this.config.enablePush && this.validatePushTargets()) {
+      pollIntervalMs = this.getCheckIntervalMs()
     } else {
-      const checkInterval = this.config.otherSource?.checkInterval ?? 600
-      intervalMs = checkInterval * 1000
+      // 推送关闭时，每 60 分钟后台同步一次
+      pollIntervalMs = BACKGROUND_POLL_MS
     }
 
-    // 即使推送关闭，也保持每小时至少请求一次 API 以同步数据
-    const backgroundIntervalMs = this.config.enablePush && this.validatePushTargets()
-      ? intervalMs
-      : Math.max(intervalMs, 3600 * 1000) // 推送关闭时，至少每小时同步一次
-
-    this.checkTask()
-    if (backgroundIntervalMs > 0) {
-      this.timer = setInterval(() => this.checkTask(), backgroundIntervalMs)
-      this.logDebug(`定时检查已启动，间隔: ${backgroundIntervalMs / 1000}s`)
+    // 首次检查
+    this.doCheckWithUnknownRecheck()
+    if (pollIntervalMs > 0) {
+      this.timer = setInterval(() => this.doCheckWithUnknownRecheck(), pollIntervalMs)
+      this.logDebug(`定时检查已启动，间隔: ${pollIntervalMs / 60000}min`)
     }
   }
 
@@ -428,15 +480,11 @@ export class MaimaiStatus extends Service {
    */
   public async getStatusSummary(shouldFetch: boolean = true): Promise<string> {
     if (shouldFetch) {
-      await this.checkTask()
+      await this.doCheck()
     }
 
     if (this.groups.size === 0) {
       return this.t('no-data')
-    }
-
-    for (const group of this.groups.values()) {
-      group.queryInterrupted = true
     }
 
     const lines: string[] = [this.t('header')]
@@ -484,14 +532,31 @@ export class MaimaiStatus extends Service {
     return lines.join('\n')
   }
 
-  private async checkTask() {
+  /** 带未知状态重检的检查入口（定时器回调） */
+  private async doCheckWithUnknownRecheck() {
+    if (this.isQuietHours()) {
+      this.logDebug(this.t('quiet-hours-sync'))
+      return
+    }
+
+    await this.doCheck()
+
+    // 如果存在未知状态且未重试过，额外请求一次（仅触发一次）
+    if (!this.unknownRechecked && this.hasUnknownGroups()) {
+      this.unknownRechecked = true
+      this.logDebug(this.t('unknown-status-recheck'))
+      await this.doCheck()
+    }
+  }
+
+  /** 执行一次状态检查 */
+  private async doCheck() {
     try {
-      if (this.config.dataSource === 'awmc' || this.config.dataSource === 'awmc-lite') {
+      if (this.isBuiltinSource()) {
         await this.checkAwmcSource()
       } else {
         await this.checkOtherSource()
       }
-      this.isFirstCheck = false
     } catch (e) {
       const truncatedMsg = this.truncateError(e)
       this.logDebug(`Check task error: ${truncatedMsg}`)
@@ -719,8 +784,7 @@ export class MaimaiStatus extends Service {
           groupName: normalizedName,
           ids: [],
           lastNotifiedStatus: null,
-          statusHistory: [],
-          queryInterrupted: false
+          statusHistory: []
         }
         this.groups.set(normalizedName, group)
       }
@@ -811,8 +875,7 @@ export class MaimaiStatus extends Service {
             groupName: normalizedName,
             ids: [],
             lastNotifiedStatus: null,
-            statusHistory: [],
-            queryInterrupted: false
+            statusHistory: []
           }
           this.groups.set(normalizedName, group)
         }
@@ -908,8 +971,7 @@ export class MaimaiStatus extends Service {
           groupName: name,
           ids,
           lastNotifiedStatus: null,
-          statusHistory: [],
-          queryInterrupted: false
+          statusHistory: []
         })
       } else {
         const existing = this.groups.get(name)!
@@ -955,6 +1017,7 @@ export class MaimaiStatus extends Service {
 
   private async analyzeAndNotify(heartbeatData: any) {
     const now = Date.now()
+    const messages: string[] = []
 
     for (const [, group] of this.groups) {
       const { ids } = group
@@ -988,26 +1051,65 @@ export class MaimaiStatus extends Service {
       group.statusHistory.push({ timestamp: now, allUp, allDown, allMaintenance, allPending })
       group.statusHistory = group.statusHistory.filter(h => now - h.timestamp < this.statusWindowMs)
 
-      await this.checkAndNotify(group, now)
+      const message = await this.checkAndNotify(group, now)
+      if (message) {
+        messages.push(message)
+      }
+    }
+
+    // 合并所有消息，一次性发送
+    if (messages.length > 0) {
+      const combinedMessage = messages.join('\n')
+      await this.pushNotification(combinedMessage)
     }
   }
 
-  private async checkAndNotify(group: ServiceGroup, now: number) {
-    const { groupName, statusHistory, lastNotifiedStatus, queryInterrupted } = group
+  private async checkAndNotify(group: ServiceGroup, now: number): Promise<string | null> {
+    const { groupName, statusHistory, lastNotifiedStatus } = group
 
-    if (statusHistory.length === 0) return
+    if (statusHistory.length === 0) return null
 
-    const oldest = statusHistory[0]
-    const windowDuration = now - oldest.timestamp
+    // 获取当前快照的聚合状态
+    const latest = statusHistory[statusHistory.length - 1]
+    let currentAggStatus: 'ONLINE' | 'OFFLINE' | 'OTHER' = 'OTHER'
+    if (latest.allUp) currentAggStatus = 'ONLINE'
+    else if (latest.allDown) currentAggStatus = 'OFFLINE'
+
+    // ── 启动抑制期：记录初始状态但不推送，不计入频率限制 ──
+    if (this.isInSuppressPeriod()) {
+      if (currentAggStatus === 'ONLINE' || currentAggStatus === 'OFFLINE') {
+        group.lastNotifiedStatus = currentAggStatus
+      }
+      this.logDebug(`[${groupName}] ${this.t('startup-suppress')}，status: ${currentAggStatus}`)
+      return null
+    }
+
+    // 推送未开启时不通知
+    if (!this.config.enablePush) return null
+
     const windowMs = this.statusWindowMs
 
-    const checkIntervalMs = (this.config.dataSource === 'awmc' || this.config.dataSource === 'awmc-lite')
-      ? API_INTERVAL_MS
-      : (this.config.otherSource?.checkInterval ?? 600) * 1000
+    // ── 立即模式（判定窗口 = 0）──
+    if (windowMs === 0) {
+      // 仅 ONLINE/OFFLINE 之间的变更才推送
+      if (currentAggStatus === 'OTHER') return null
+      if (currentAggStatus === lastNotifiedStatus) return null
 
-    // 窗口就绪条件：时间跨度足够，或者检查间隔本身就大于等于窗口（单次检查代表足够时长）
+      group.lastNotifiedStatus = currentAggStatus
+      group.statusHistory = [latest]
+      const statusText = currentAggStatus === 'ONLINE' ? this.t('online') : this.t('offline')
+      this.logDebug(`[${groupName}] 即时模式状态变更: ${statusText}`)
+      return `${groupName} ${statusText}`
+    }
+
+    // ── 窗口模式 ──
+    const oldest = statusHistory[0]
+    const windowDuration = now - oldest.timestamp
+    const checkIntervalMs = this.getCheckIntervalMs()
+
+    // 窗口就绪条件：时间跨度 >= 窗口期，或检查间隔 >= 窗口期（单次即可代表）
     if (windowDuration >= windowMs || checkIntervalMs >= windowMs) {
-      // 判定窗口内所有采样点的一致状态
+      // 窗口内所有采样点一致性判定
       const allUpInWindow = statusHistory.every(h => h.allUp)
       const allDownInWindow = statusHistory.every(h => h.allDown)
 
@@ -1015,77 +1117,69 @@ export class MaimaiStatus extends Service {
       if (allUpInWindow) targetStatus = 'ONLINE'
       else if (allDownInWindow) targetStatus = 'OFFLINE'
 
-      // 窗口内不一致或为 MAINTENANCE/UNSTABLE → 不推送
-      if (!targetStatus) return
+      // 窗口内不一致或不是 ONLINE/OFFLINE → 不推送（MAINTENANCE/UNSTABLE 仅记录）
+      if (!targetStatus) return null
 
-      if (queryInterrupted) {
-        if (targetStatus !== lastNotifiedStatus) {
-          group.queryInterrupted = false
-        } else {
-          return
-        }
-      }
-
-      // 与前一状态相同 → 跳过
-      if (targetStatus === lastNotifiedStatus) return
-
-      const statusText = targetStatus === 'ONLINE' ? this.t('online') : this.t('offline')
-      const message = `${groupName} ${statusText}`
-
-      this.logDebug(`[${groupName}] ${statusText}`)
-
-      if (this.isFirstCheck) {
-        this.logDebug(`${groupName} First check notification suppressed.`)
-      } else if (Date.now() - this.lastManualQueryTime < 30 * 60 * 1000) {
-        this.logDebug(`${groupName} Notification suppressed due to recent manual query.`)
-      } else {
-        await this.pushNotification(message)
-      }
+      // 与上次通知状态相同 → 跳过
+      if (targetStatus === lastNotifiedStatus) return null
 
       group.lastNotifiedStatus = targetStatus
       group.statusHistory = []
+      const statusText = targetStatus === 'ONLINE' ? this.t('online') : this.t('offline')
+      this.logDebug(`[${groupName}] 状态变更: ${statusText}`)
+      return `${groupName} ${statusText}`
     } else {
       if (this.debugEnabled) {
-        this.logDebug(`Window not ready: ${groupName} ${Math.round(windowDuration / 1000)}s < ${windowMs / 1000}s`)
+        this.logDebug(`[${groupName}] 窗口未就绪: ${Math.round(windowDuration / 1000)}s < ${windowMs / 1000}s`)
       }
+      return null
     }
   }
 
   private async pushNotification(message: string) {
     if (!this.config.enablePush || !this.config.pushTargets) return
 
-    // Rate limiting check
-    if (this.config.enableRateLimit !== false) {
+    // 启动抑制期内不推送，且不计入频率限制
+    if (this.isInSuppressPeriod()) {
+      this.logDebug(this.t('startup-suppress'))
+      return
+    }
+
+    // 频率限制检查
+    if (this.config.enableRateLimit) {
       const now = Date.now()
-
-      // Check if currently paused
-      if (now < this.rateLimitPausedUntil) {
-        this.logDebug(`Rate limit active, paused until ${new Date(this.rateLimitPausedUntil).toLocaleTimeString()}`)
-        return
-      }
-
-      // If we were paused and now resumed, log it
-      if (this.rateLimitPausedUntil > 0) {
-        this.logDebug(this.t('rate-limit-resumed'))
-        this.rateLimitPausedUntil = 0
-      }
-
-      const windowMs = (this.config.rateLimitWindow ?? 60) * 60 * 1000
       const maxCount = this.config.rateLimitCount ?? 3
-      const pauseMs = (this.config.rateLimitPause ?? 30) * 60 * 1000
 
-      // Clean old timestamps outside the window
-      this.notificationTimestamps = this.notificationTimestamps.filter(t => now - t < windowMs)
+      // rateLimitCount = 0 → 关闭频率限制功能
+      if (maxCount > 0) {
+        // 检查是否在暂停期
+        if (now < this.rateLimitPausedUntil) {
+          this.logDebug(`Rate limit active, paused until ${new Date(this.rateLimitPausedUntil).toLocaleTimeString()}`)
+          return
+        }
 
-      // Check if limit exceeded
-      if (this.notificationTimestamps.length >= maxCount) {
-        this.rateLimitPausedUntil = now + pauseMs
-        this.statusLogger.warn(`${this.t('rate-limit-paused')} (${maxCount} in ${this.config.rateLimitWindow ?? 60}min, pause ${this.config.rateLimitPause ?? 30}min)`)
-        return
+        // 暂停期结束
+        if (this.rateLimitPausedUntil > 0) {
+          this.logDebug(this.t('rate-limit-resumed'))
+          this.rateLimitPausedUntil = 0
+        }
+
+        const windowMs = (this.config.rateLimitWindow ?? 60) * 60 * 1000
+        const pauseMs = (this.config.rateLimitPause ?? 30) * 60 * 1000
+
+        // 清理窗口外的旧时间戳
+        this.notificationTimestamps = this.notificationTimestamps.filter(t => now - t < windowMs)
+
+        // 检查是否超限
+        if (this.notificationTimestamps.length >= maxCount) {
+          this.rateLimitPausedUntil = now + pauseMs
+          this.statusLogger.warn(`${this.t('rate-limit-paused')} (${maxCount} in ${this.config.rateLimitWindow ?? 60}min, pause ${this.config.rateLimitPause ?? 30}min)`)
+          return
+        }
+
+        // 记录本次通知时间戳
+        this.notificationTimestamps.push(now)
       }
-
-      // Record this notification
-      this.notificationTimestamps.push(now)
     }
 
     const bot = this.ctx.bots[0]
