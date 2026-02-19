@@ -187,92 +187,35 @@ export const Config = Schema.intersect([
     enablePush: Schema.boolean().default(false).description('启用状态变化推送通知'),
   }).description('推送设置'),
 
-  // 推送开启后的配置（统一注册，避免跨 union 同名字段导致控制台不渲染）
+  // 推送开启后的配置（简化结构：仅用 enablePush 区分，其他字段都提供默认值支持旧配置升级）
   Schema.union([
     // 推送关闭
     Schema.object({
       enablePush: Schema.const(false).required(),
     }),
-    // 推送开启 + 内置源 + 不启用频率限制
+    // 推送开启：所有字段都提供默认值，避免配置验证失败
     Schema.object({
       enablePush: Schema.const(true).required(),
+      pushTargets: Schema.array(Schema.string())
+        .required()
+        .min(1)
+        .role('table')
+        .description('推送目标，格式: user:ID 或 group:ID'),
       dataSource: Schema.union([
-        Schema.const('awmc').required(),
-        Schema.const('awmc-lite').required(),
-      ]),
-      pushTargets: Schema.array(Schema.string())
-        .required()
-        .min(1)
-        .role('table')
-        .description('推送目标，格式: user:ID 或 group:ID'),
-      enableRateLimit: Schema.const(false).required()
-        .description('启用通知频率限制（防止状态反复跳变时刷屏）'),
-    }),
-    // 推送开启 + 内置源 + 启用频率限制
-    Schema.object({
-      enablePush: Schema.const(true).required(),
-      dataSource: Schema.union([
-        Schema.const('awmc').required(),
-        Schema.const('awmc-lite').required(),
-      ]),
-      pushTargets: Schema.array(Schema.string())
-        .required()
-        .min(1)
-        .role('table')
-        .description('推送目标，格式: user:ID 或 group:ID'),
-      enableRateLimit: Schema.const(true).required()
-        .description('启用通知频率限制（防止状态反复跳变时刷屏）'),
-      rateLimitWindow: Schema.number()
-        .default(60)
-        .min(1)
-        .description('统计时长（分钟）：在此时间内统计通知次数'),
-      rateLimitCount: Schema.number()
-        .default(3)
-        .min(0)
-        .description('最多通知次数：窗口内最多发送的通知次数，为 0 时关闭该功能'),
-      rateLimitPause: Schema.number()
-        .default(30)
-        .min(1)
-        .description('暂停时长（分钟）：超过次数后暂停推送的时长'),
-    }),
-    // 推送开启 + 其他源 + 不启用频率限制
-    Schema.object({
-      enablePush: Schema.const(true).required(),
-      dataSource: Schema.const('other').required(),
-      pushTargets: Schema.array(Schema.string())
-        .required()
-        .min(1)
-        .role('table')
-        .description('推送目标，格式: user:ID 或 group:ID'),
+        Schema.const('awmc').description('status.awmc.cc'),
+        Schema.const('awmc-lite').description('status.awmc.cc[lite]'),
+        Schema.const('other').description('其他'),
+      ]).default('awmc').description('数据源'),
       checkInterval: Schema.number()
         .default(10)
         .min(1)
-        .description('请求间隔（分钟）：每隔多长时间请求一次状态源'),
+        .description('请求间隔（分钟，仅其他源）：每隔多长时间请求一次状态源'),
       statusWindow: Schema.number()
         .default(10)
         .min(0)
-        .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更，为 0 时状态变更后立即通报'),
-      enableRateLimit: Schema.const(false).required()
-        .description('启用通知频率限制（防止状态反复跳变时刷屏）'),
-    }),
-    // 推送开启 + 其他源 + 启用频率限制
-    Schema.object({
-      enablePush: Schema.const(true).required(),
-      dataSource: Schema.const('other').required(),
-      pushTargets: Schema.array(Schema.string())
-        .required()
-        .min(1)
-        .role('table')
-        .description('推送目标，格式: user:ID 或 group:ID'),
-      checkInterval: Schema.number()
-        .default(10)
-        .min(1)
-        .description('请求间隔（分钟）：每隔多长时间请求一次状态源'),
-      statusWindow: Schema.number()
-        .default(10)
-        .min(0)
-        .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更，为 0 时状态变更后立即通报'),
-      enableRateLimit: Schema.const(true).required()
+        .description('判定窗口（分钟，仅其他源）：窗口内状态全部一致才视为状态变更，为 0 时立即通报'),
+      enableRateLimit: Schema.boolean()
+        .default(true)
         .description('启用通知频率限制（防止状态反复跳变时刷屏）'),
       rateLimitWindow: Schema.number()
         .default(60)
