@@ -71,6 +71,7 @@ const I18N: Record<string, Record<string, string>> = {
     'unknown-status-recheck': '检测到未知状态，正在重新检查...',
     'rate-limit-paused': '通知频率过高，暂停推送',
     'rate-limit-resumed': '通知推送已恢复',
+    'rate-limit-auto-corrected': '频率限制参数已自动校正',
     'quiet-hours': '当前处于维护时段（UTC+8 3:00-8:00），暂不提供状态查询',
     'quiet-hours-sync': '维护时段（UTC+8 3:00-8:00），跳过状态同步',
     'startup-suppress': '启动抑制期内，跳过推送'
@@ -113,6 +114,7 @@ const I18N: Record<string, Record<string, string>> = {
     'unknown-status-recheck': 'Unknown status detected, rechecking...',
     'rate-limit-paused': 'Notification rate limit reached, pausing push',
     'rate-limit-resumed': 'Notification push resumed',
+    'rate-limit-auto-corrected': 'Rate limit parameters auto-corrected',
     'quiet-hours': 'Maintenance period (UTC+8 3:00-8:00), status query unavailable',
     'quiet-hours-sync': 'Maintenance period (UTC+8 3:00-8:00), skipping sync',
     'startup-suppress': 'Startup suppression active, skipping push'
@@ -185,49 +187,41 @@ export const Config = Schema.intersect([
     enablePush: Schema.boolean().default(false).description('启用状态变化推送通知'),
   }).description('推送设置'),
 
-  // enablePush = true → 推送目标
+  // 推送开启后的配置（统一注册，避免跨 union 同名字段导致控制台不渲染）
   Schema.union([
+    // 推送关闭
+    Schema.object({
+      enablePush: Schema.const(false).required(),
+    }),
+    // 推送开启 + 内置源 + 不启用频率限制
     Schema.object({
       enablePush: Schema.const(true).required(),
+      dataSource: Schema.union([
+        Schema.const('awmc').required(),
+        Schema.const('awmc-lite').required(),
+      ]),
       pushTargets: Schema.array(Schema.string())
+        .required()
+        .min(1)
         .role('table')
         .description('推送目标，格式: user:ID 或 group:ID'),
-    }),
-    Schema.object({}),
-  ]),
-
-  // enablePush = true AND dataSource = other → 请求间隔与判定窗口（不受防抖开关影响）
-  Schema.union([
-    Schema.object({
-      enablePush: Schema.const(true).required(),
-      dataSource: Schema.const('other').required(),
-      checkInterval: Schema.number()
-        .default(10)
-        .min(1)
-        .description('请求间隔（分钟）：每隔多长时间请求一次状态源'),
-      statusWindow: Schema.number()
-        .default(10)
-        .min(0)
-        .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更，为 0 时状态变更后立即通报'),
-    }),
-    Schema.object({}),
-  ]),
-
-  // enablePush = true → 频率限制开关
-  Schema.union([
-    Schema.object({
-      enablePush: Schema.const(true).required(),
-      enableRateLimit: Schema.boolean()
-        .default(true)
+      enableRateLimit: Schema.const(false).required()
         .description('启用通知频率限制（防止状态反复跳变时刷屏）'),
     }),
-    Schema.object({}),
-  ]),
-
-  // enableRateLimit = true → 频率限制参数
-  Schema.union([
+    // 推送开启 + 内置源 + 启用频率限制
     Schema.object({
-      enableRateLimit: Schema.const(true).required(),
+      enablePush: Schema.const(true).required(),
+      dataSource: Schema.union([
+        Schema.const('awmc').required(),
+        Schema.const('awmc-lite').required(),
+      ]),
+      pushTargets: Schema.array(Schema.string())
+        .required()
+        .min(1)
+        .role('table')
+        .description('推送目标，格式: user:ID 或 group:ID'),
+      enableRateLimit: Schema.const(true).required()
+        .description('启用通知频率限制（防止状态反复跳变时刷屏）'),
       rateLimitWindow: Schema.number()
         .default(60)
         .min(1)
@@ -241,7 +235,58 @@ export const Config = Schema.intersect([
         .min(1)
         .description('暂停时长（分钟）：超过次数后暂停推送的时长'),
     }),
-    Schema.object({}),
+    // 推送开启 + 其他源 + 不启用频率限制
+    Schema.object({
+      enablePush: Schema.const(true).required(),
+      dataSource: Schema.const('other').required(),
+      pushTargets: Schema.array(Schema.string())
+        .required()
+        .min(1)
+        .role('table')
+        .description('推送目标，格式: user:ID 或 group:ID'),
+      checkInterval: Schema.number()
+        .default(10)
+        .min(1)
+        .description('请求间隔（分钟）：每隔多长时间请求一次状态源'),
+      statusWindow: Schema.number()
+        .default(10)
+        .min(0)
+        .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更，为 0 时状态变更后立即通报'),
+      enableRateLimit: Schema.const(false).required()
+        .description('启用通知频率限制（防止状态反复跳变时刷屏）'),
+    }),
+    // 推送开启 + 其他源 + 启用频率限制
+    Schema.object({
+      enablePush: Schema.const(true).required(),
+      dataSource: Schema.const('other').required(),
+      pushTargets: Schema.array(Schema.string())
+        .required()
+        .min(1)
+        .role('table')
+        .description('推送目标，格式: user:ID 或 group:ID'),
+      checkInterval: Schema.number()
+        .default(10)
+        .min(1)
+        .description('请求间隔（分钟）：每隔多长时间请求一次状态源'),
+      statusWindow: Schema.number()
+        .default(10)
+        .min(0)
+        .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更，为 0 时状态变更后立即通报'),
+      enableRateLimit: Schema.const(true).required()
+        .description('启用通知频率限制（防止状态反复跳变时刷屏）'),
+      rateLimitWindow: Schema.number()
+        .default(60)
+        .min(1)
+        .description('统计时长（分钟）：在此时间内统计通知次数'),
+      rateLimitCount: Schema.number()
+        .default(3)
+        .min(0)
+        .description('最多通知次数：窗口内最多发送的通知次数，为 0 时关闭该功能'),
+      rateLimitPause: Schema.number()
+        .default(30)
+        .min(1)
+        .description('暂停时长（分钟）：超过次数后暂停推送的时长'),
+    }),
   ]),
 ])
 
@@ -347,6 +392,28 @@ export class MaimaiStatus extends Service {
     return false
   }
 
+  /** 自动校正频率限制参数：当最多通知次数过高时下调到允许的最大值 */
+  private normalizeRateLimitConfig() {
+    if (!this.config.enablePush || !this.config.enableRateLimit) return
+
+    const rateLimitWindow = Math.max(1, this.config.rateLimitWindow ?? 60)
+    this.config.rateLimitWindow = rateLimitWindow
+
+    const effectiveWindowMin = this.statusWindowMs > 0
+      ? this.statusWindowMs / 60000
+      : this.getCheckIntervalMs() / 60000
+
+    const maxAllowedCount = Math.max(0, Math.floor(rateLimitWindow / effectiveWindowMin))
+    const configuredCount = Math.max(0, this.config.rateLimitCount ?? 3)
+
+    if (configuredCount > maxAllowedCount) {
+      this.config.rateLimitCount = maxAllowedCount
+      this.statusLogger.warn(
+        `${this.t('rate-limit-auto-corrected')}: rateLimitCount ${configuredCount} -> ${maxAllowedCount} (rateLimitWindow=${rateLimitWindow}min, effectiveWindow=${effectiveWindowMin}min)`
+      )
+    }
+  }
+
   private t(key: string): string {
     return I18N[this.locale]?.[key] || I18N['zh-CN'][key] || key
   }
@@ -368,19 +435,7 @@ export class MaimaiStatus extends Service {
       this.statusLogger.info(this.t('monitor-started'))
     }
 
-    // 校验频率限制参数
-    if (this.config.enablePush && this.config.enableRateLimit) {
-      const windowMin = this.statusWindowMs > 0
-        ? this.statusWindowMs / 60000
-        : this.getCheckIntervalMs() / 60000
-      const rlw = this.config.rateLimitWindow ?? 60
-      const rlc = this.config.rateLimitCount ?? 3
-      if (rlc > 0 && rlc * windowMin >= rlw) {
-        this.statusLogger.warn(
-          `rateLimitCount(${rlc}) × statusWindow(${windowMin}min) >= rateLimitWindow(${rlw}min)，频率限制可能无法生效`
-        )
-      }
-    }
+    this.normalizeRateLimitConfig()
 
     await this.loadCache()
 
