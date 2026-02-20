@@ -181,13 +181,7 @@ export const Config = Schema.intersect([
               .default('{"monitors": [{"id": "$id$", "name": "$name$", "status": "$status$"}]}')
               .description('API 格式模板（必填），变量: $id$, $name$, $status$, $uptime$'),
           }),
-          Schema.object({
-            preset: Schema.union([
-              Schema.const('uptime-kuma'),
-              Schema.const('uptimerobot'),
-              Schema.const('hetrixtools')
-            ]).required()
-          }),
+          Schema.object({}),
         ]),
       ]).description('其他数据源配置'),
     }),
@@ -199,44 +193,42 @@ export const Config = Schema.intersect([
     enablePush: Schema.boolean().default(false).description('启用状态变化推送通知'),
   }).description('推送设置'),
   Schema.union([
-    Schema.intersect([
-      Schema.object({
-        enablePush: Schema.const(true).required(),
-        pushTargets: Schema.array(Schema.string())
-          .required()
-          .min(1)
-          .role('table')
-          .description('推送目标，格式: user:ID 或 group:ID'),
-      }),
-      Schema.union([
-        Schema.object({
-          dataSource: Schema.const('awmc').required(),
-          checkInterval: Schema.number()
-            .default(10)
-            .min(10)
-            .description('请求间隔（分钟）：每隔多长时间请求一次状态源（使用内置源时最小限制为 10）'),
-          statusWindow: Schema.number()
-            .default(10)
-            .min(10)
-            .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更（使用内置源时最小限制为 10）'),
-        }),
-        Schema.object({
-          dataSource: Schema.const('other').required(),
-          checkInterval: Schema.number()
-            .default(10)
-            .min(1)
-            .description('请求间隔（分钟）：每隔多长时间请求一次状态源'),
-          statusWindow: Schema.number()
-            .default(10)
-            .min(0)
-            .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更，为 0 时立即通报'),
-        }),
-        Schema.object({})
-      ]),
-      Schema.object({
-        enableRateLimit: Schema.boolean().default(false).description('启用通知频率限制（防止状态反复跳变时刷屏）'),
-      })
-    ]),
+    Schema.object({
+      enablePush: Schema.const(true).required(),
+      dataSource: Schema.const('awmc').required(),
+      pushTargets: Schema.array(Schema.string())
+        .required()
+        .min(1)
+        .role('table')
+        .description('推送目标，格式: user:ID 或 group:ID'),
+      checkInterval: Schema.number()
+        .default(10)
+        .min(10)
+        .description('请求间隔（分钟）：每隔多长时间请求一次状态源（使用内置源时最小为 10）'),
+      statusWindow: Schema.number()
+        .default(10)
+        .min(10)
+        .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更（使用内置源时最小为 10）'),
+      enableRateLimit: Schema.boolean().default(false).description('启用通知频率限制（防止状态反复跳变时刷屏）'),
+    }),
+    Schema.object({
+      enablePush: Schema.const(true).required(),
+      dataSource: Schema.const('other').required(),
+      pushTargets: Schema.array(Schema.string())
+        .required()
+        .min(1)
+        .role('table')
+        .description('推送目标，格式: user:ID 或 group:ID'),
+      checkInterval: Schema.number()
+        .default(10)
+        .min(1)
+        .description('请求间隔（分钟）：每隔多长时间请求一次状态源'),
+      statusWindow: Schema.number()
+        .default(10)
+        .min(0)
+        .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更，为 0 时立即通报'),
+      enableRateLimit: Schema.boolean().default(false).description('启用通知频率限制（防止状态反复跳变时刷屏）'),
+    }),
     Schema.object({ enablePush: Schema.const(false) as Schema<boolean> }),
   ]),
   // 频率限制配置
