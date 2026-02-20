@@ -215,14 +215,15 @@ export const Config = Schema.intersect([
           .default(10)
           .min(0)
           .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更，为 0 时立即通报（使用内置源时最小为 10）'),
+        enableRateLimit: Schema.boolean().default(false).description('启用通知频率限制（防止状态反复跳变时刷屏）'),
       }),
       // 频率限制配置
       Schema.union([
         Schema.object({
-          enableRateLimit: Schema.const(false).description('启用通知频率限制（防止状态反复跳变时刷屏）'),
+          enableRateLimit: Schema.const(false).required(),
         }),
         Schema.object({
-          enableRateLimit: Schema.const(true).required().description('启用通知频率限制（防止状态反复跳变时刷屏）'),
+          enableRateLimit: Schema.const(true).required(),
           rateLimitWindow: Schema.number()
             .default(60)
             .min(1)
