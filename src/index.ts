@@ -28,8 +28,9 @@ declare module 'koishi' {
 }
 
 export function apply(ctx: Context, config: MaichuniConfig) {
+  config = config || {} as MaichuniConfig
   const logger = ctx.logger('maichuni-scorehelper')
-  
+
   // Load i18n
   ctx.i18n.define('zh-CN', require('./locales/zh-CN').default)
   ctx.i18n.define('en-US', require('./locales/en-US').default)
@@ -46,11 +47,11 @@ export function apply(ctx: Context, config: MaichuniConfig) {
     ...config.statusMonitor,
     debug: config.debug
   })
-  
+
   if (config.debug) {
     logger.info('[DEBUG] 调试模式已启用，将输出详细日志')
   }
-  
+
   ctx.plugin(MaimaiQuery, {
     divingfishDevToken: config.divingfishDevToken,
     lxnsDevToken: config.lxnsDevToken,
@@ -69,7 +70,7 @@ export function apply(ctx: Context, config: MaichuniConfig) {
   registerChunithmCommands(ctx, config)
   registerFishCommands(ctx, config)
   registerLxCommands(ctx, config)
-  
+
   if (config.debug) {
     logger.info('maimai 和 CHUNITHM 查分插件已启动')
   }

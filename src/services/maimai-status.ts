@@ -177,10 +177,17 @@ export const Config = Schema.intersect([
             webUrl: Schema.string().description('Web 页面 URL（可选，用于获取服务名称）'),
             apiFormat: Schema.string()
               .role('textarea')
+              .required()
               .default('{"monitors": [{"id": "$id$", "name": "$name$", "status": "$status$"}]}')
-              .description('API 格式模板，变量: $id$, $name$, $status$, $uptime$'),
+              .description('API 格式模板（必填），变量: $id$, $name$, $status$, $uptime$'),
           }),
-          Schema.object({}),
+          Schema.object({
+            preset: Schema.union([
+              Schema.const('uptime-kuma'),
+              Schema.const('uptimerobot'),
+              Schema.const('hetrixtools')
+            ]).required()
+          }),
         ]),
       ]).description('其他数据源配置'),
     }),
@@ -191,14 +198,7 @@ export const Config = Schema.intersect([
   Schema.object({
     enablePush: Schema.boolean().default(false).description('启用状态变化推送通知'),
   }).description('推送设置'),
-
-  // 推送开启后的配置（简化结构：仅用 enablePush 区分，其他字段都提供默认值支持旧配置升级）
   Schema.union([
-    // 推送关闭
-    Schema.object({
-      enablePush: Schema.const(false).required(),
-    }),
-    // 推送开启
     Schema.intersect([
       Schema.object({
         enablePush: Schema.const(true).required(),
@@ -207,39 +207,57 @@ export const Config = Schema.intersect([
           .min(1)
           .role('table')
           .description('推送目标，格式: user:ID 或 group:ID'),
-        checkInterval: Schema.number()
-          .default(10)
-          .min(1)
-          .description('请求间隔（分钟）：每隔多长时间请求一次状态源（使用内置源时最小为 10）'),
-        statusWindow: Schema.number()
-          .default(10)
-          .min(0)
-          .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更，为 0 时立即通报（使用内置源时最小为 10）'),
-        enableRateLimit: Schema.boolean().default(false).description('启用通知频率限制（防止状态反复跳变时刷屏）'),
       }),
-      // 频率限制配置
       Schema.union([
         Schema.object({
-          enableRateLimit: Schema.const(false).required(),
+          dataSource: Schema.const('awmc').required(),
+          checkInterval: Schema.number()
+            .default(10)
+            .min(10)
+            .description('请求间隔（分钟）：每隔多长时间请求一次状态源（使用内置源时最小限制为 10）'),
+          statusWindow: Schema.number()
+            .default(10)
+            .min(10)
+            .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更（使用内置源时最小限制为 10）'),
         }),
         Schema.object({
-          enableRateLimit: Schema.const(true).required(),
-          rateLimitWindow: Schema.number()
-            .default(60)
+          dataSource: Schema.const('other').required(),
+          checkInterval: Schema.number()
+            .default(10)
             .min(1)
-            .description('统计时长（分钟）：在此时间内统计通知次数'),
-          rateLimitCount: Schema.number()
-            .default(3)
-            .min(1)
-            .description('最多通知次数：窗口内最多发送的通知次数'),
-          rateLimitPause: Schema.number()
-            .default(30)
-            .min(1)
-            .description('暂停时长（分钟）：超过次数后暂停推送的时长'),
+            .description('请求间隔（分钟）：每隔多长时间请求一次状态源'),
+          statusWindow: Schema.number()
+            .default(10)
+            .min(0)
+            .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更，为 0 时立即通报'),
         }),
+        Schema.object({})
       ]),
+      Schema.object({
+        enableRateLimit: Schema.boolean().default(false).description('启用通知频率限制（防止状态反复跳变时刷屏）'),
+      })
     ]),
+    Schema.object({ enablePush: Schema.const(false) as Schema<boolean> }),
   ]),
+  // 频率限制配置
+  Schema.union([
+    Schema.object({
+      enableRateLimit: Schema.const(true).required(),
+      rateLimitWindow: Schema.number()
+        .default(60)
+        .min(1)
+        .description('统计时长（分钟）：在此时间内统计通知次数'),
+      rateLimitCount: Schema.number()
+        .default(3)
+        .min(1)
+        .description('最多通知次数：窗口内最多发送的通知次数'),
+      rateLimitPause: Schema.number()
+        .default(30)
+        .min(1)
+        .description('暂停时长（分钟）：超过次数后暂停推送的时长'),
+    }),
+    Schema.object({ enableRateLimit: Schema.const(false) as Schema<boolean> }),
+  ])
 ])
 
 interface MonitorItem {
@@ -366,6 +384,7 @@ export class MaimaiStatus extends Service {
       )
     }
   }
+
 
   private t(key: string): string {
     return I18N[this.locale]?.[key] || I18N['zh-CN'][key] || key
