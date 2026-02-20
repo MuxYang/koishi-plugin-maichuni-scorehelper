@@ -48,7 +48,7 @@
   },
   "koishi": {
     "description": {
-      "zh-CN": "舞萌中二节奏相关插件",
+      "zh-CN": "舞萌与中二节奏相关小功能插件，包括舞萌状态查询，基于落雪和水鱼的成绩查询，未来可能会开发并接入基于代理的自部署微信分数同步服务",
       "en": "Maimai & Chunithm related plugin"
     },
     "icon": "game",
