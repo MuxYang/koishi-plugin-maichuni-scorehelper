@@ -195,7 +195,6 @@ export const Config = Schema.intersect([
   Schema.union([
     Schema.object({
       enablePush: Schema.const(true).required(),
-      dataSource: Schema.const('awmc').required(),
       pushTargets: Schema.array(Schema.string())
         .required()
         .min(1)
@@ -203,34 +202,17 @@ export const Config = Schema.intersect([
         .description('推送目标，格式: user:ID 或 group:ID'),
       checkInterval: Schema.number()
         .default(10)
-        .min(10)
+        .min(1)
         .description('请求间隔（分钟）：每隔多长时间请求一次状态源（使用内置源时最小为 10）'),
       statusWindow: Schema.number()
         .default(10)
-        .min(10)
-        .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更（使用内置源时最小为 10）'),
-      enableRateLimit: Schema.boolean().default(false).description('启用通知频率限制（防止状态反复跳变时刷屏）'),
-    }),
-    Schema.object({
-      enablePush: Schema.const(true).required(),
-      dataSource: Schema.const('other').required(),
-      pushTargets: Schema.array(Schema.string())
-        .required()
-        .min(1)
-        .role('table')
-        .description('推送目标，格式: user:ID 或 group:ID'),
-      checkInterval: Schema.number()
-        .default(10)
-        .min(1)
-        .description('请求间隔（分钟）：每隔多长时间请求一次状态源'),
-      statusWindow: Schema.number()
-        .default(10)
         .min(0)
-        .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更，为 0 时立即通报'),
+        .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更，为 0 时立即通报（使用内置源时最小为 10）'),
       enableRateLimit: Schema.boolean().default(false).description('启用通知频率限制（防止状态反复跳变时刷屏）'),
     }),
-    Schema.object({ enablePush: Schema.const(false) as Schema<boolean> }),
+    Schema.object({}),
   ]),
+
   // 频率限制配置
   Schema.union([
     Schema.object({
@@ -248,9 +230,9 @@ export const Config = Schema.intersect([
         .min(1)
         .description('暂停时长（分钟）：超过次数后暂停推送的时长'),
     }),
-    Schema.object({ enableRateLimit: Schema.const(false) as Schema<boolean> }),
-  ])
-])
+    Schema.object({}),
+  ]),
+] as const)
 
 interface MonitorItem {
   id: number
@@ -377,6 +359,18 @@ export class MaimaiStatus extends Service {
     }
   }
 
+  /** 内置源最小间隔校正：Schema 不支持跨字段条件 min，在运行时强制执行 */
+  private normalizeIntervalConfig() {
+    if (!this.isBuiltinSource() || !this.config.enablePush) return
+    if ((this.config.checkInterval ?? 10) < 10) {
+      this.statusLogger.warn(`内置源请求间隔至少为 10 分钟，已自动校正 (${this.config.checkInterval} -> 10)`)
+      this.config.checkInterval = 10
+    }
+    if ((this.config.statusWindow ?? 10) < 10) {
+      this.statusLogger.warn(`内置源判定窗口至少为 10 分钟，已自动校正 (${this.config.statusWindow} -> 10)`)
+      this.config.statusWindow = 10
+    }
+  }
 
   private t(key: string): string {
     return I18N[this.locale]?.[key] || I18N['zh-CN'][key] || key
@@ -399,6 +393,7 @@ export class MaimaiStatus extends Service {
       this.statusLogger.info(this.t('monitor-started'))
     }
 
+    this.normalizeIntervalConfig()
     this.normalizeRateLimitConfig()
 
     await this.loadCache()
