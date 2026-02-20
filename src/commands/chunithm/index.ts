@@ -1,25 +1,26 @@
 import { Context, h } from 'koishi'
 import { MaichuniConfig } from '../../config'
 import { ScoreItem as ChunithmScoreItem, B50Data as ChunithmB50HtmlData } from '../../services/htmlframe'
+import { registerSharedAliasCommands } from '../../utils/alias-command'
 
 /**
  * Register all chunithm commands
  */
 export function registerChunithmCommands(ctx: Context, config: MaichuniConfig) {
     return ctx.inject(['chunithmQuery', 'htmlframe', 'songDataManager', 'aliasManager', 'puppeteer'], (ctx) => {
-    const chu = ctx.command('chu', '中二节奏查分指令')
-        .usage('使用 chu.b50 查询 Best 50\n使用 chu.calc 计算容错\n使用 chu.alias 管理别名')
-    // B50 command group
-    registerB50Commands(ctx, config)
+        const chu = ctx.command('chu', '中二节奏查分指令')
+            .usage('使用 chu.b50 查询 Best 50\n使用 chu.calc 计算容错\n使用 chu.alias 管理别名')
+        // B50 command group
+        registerB50Commands(ctx, config)
 
-    // AJ50/FC50 commands
-    registerAjFcCommands(ctx, config)
+        // AJ50/FC50 commands
+        registerAjFcCommands(ctx, config)
 
-    // Calc command
-    registerCalcCommand(ctx, config)
+        // Calc command
+        registerCalcCommand(ctx, config)
 
-    // Alias management
-    registerAliasCommands(ctx, config)
+        // Alias management
+        registerSharedAliasCommands(ctx, 'chu', 'chunithm')
     })
 }
 
@@ -254,63 +255,7 @@ function registerCalcCommand(ctx: Context, config: MaichuniConfig) {
         })
 }
 
-function registerAliasCommands(ctx: Context, config: MaichuniConfig) {
-    ctx.command('chu.alias', '别名管理')
-        .usage('使用 chu.alias.add/delete/list 管理别名')
 
-    ctx.command('chu.alias.add <songId:number> <alias:string>', '添加本地别名')
-        .action(async ({ session }, songId, alias) => {
-            if (!songId || !alias) {
-                return '请提供曲目 ID 和别名\n例: chu.alias.add 834 "测试"'
-            }
-
-            const success = await ctx.aliasManager?.addAlias('chunithm', songId, alias)
-            if (success) {
-                return `已添加别名: ${alias} → ${songId}`
-            } else {
-                return `添加失败，该别名可能已存在`
-            }
-        })
-
-    ctx.command('chu.alias.delete <alias:string>', '删除本地别名')
-        .action(async ({ session }, alias) => {
-            if (!alias) {
-                return '请提供要删除的别名'
-            }
-
-            const success = await ctx.aliasManager?.deleteAlias('chunithm', alias)
-            if (success) {
-                return `已删除别名: ${alias}`
-            } else {
-                return `删除失败，该别名不存在或不是本地别名`
-            }
-        })
-
-    ctx.command('chu.alias.list [songId:number]', '查看别名列表')
-        .action(async ({ session }, songId) => {
-            if (!songId) {
-                return '请提供曲目 ID\n例: chu.alias.list 834'
-            }
-
-            const aliases = await ctx.aliasManager?.getAliases('chunithm', songId)
-            if (!aliases) {
-                return '查询失败'
-            }
-
-            const lines: string[] = [`曲目 ${songId} 的别名:`]
-            if (aliases.local.length > 0) {
-                lines.push(`本地: ${aliases.local.join(', ')}`)
-            }
-            if (aliases.lxns.length > 0) {
-                lines.push(`lxns: ${aliases.lxns.join(', ')}`)
-            }
-            if (aliases.local.length === 0 && aliases.lxns.length === 0) {
-                lines.push('暂无别名')
-            }
-
-            return lines.join('\n')
-        })
-}
 
 /**
  * Chunithm 曲绘 URL 生成

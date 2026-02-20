@@ -2,14 +2,20 @@ import { Context, Schema, Logger, Service } from 'koishi'
 
 export const name = 'maimai-status-monitor'
 
+const _decode = (str: string) => Buffer.from(str, 'base64').toString('utf8')
+
 const AWMC_STATUS_PAGE_URLS: Record<string, { web: string; api: string }> = {
-  'awmc': {
-    web: 'https://status.awmc.cc/status/maimai',
-    api: 'https://status.awmc.cc/api/status-page/heartbeat/maimai'
+  get 'awmc'() {
+    return {
+      web: _decode('aHR0cHM6Ly9zdGF0dXMuYXdtYy5jYy9zdGF0dXMvbWFpbWFp'),
+      api: _decode('aHR0cHM6Ly9zdGF0dXMuYXdtYy5jYy9hcGkvc3RhdHVzLXBhZ2UvaGVhcnRiZWF0L21haW1haQ==')
+    }
   },
-  'awmc-lite': {
-    web: 'https://status.awmc.cc/status/maimai-lite',
-    api: 'https://status.awmc.cc/api/status-page/heartbeat/maimai-lite'
+  get 'awmc-lite'() {
+    return {
+      web: _decode('aHR0cHM6Ly9zdGF0dXMuYXdtYy5jYy9zdGF0dXMvbWFpbWFpLWxpdGU='),
+      api: _decode('aHR0cHM6Ly9zdGF0dXMuYXdtYy5jYy9hcGkvc3RhdHVzLXBhZ2UvaGVhcnRiZWF0L21haW1haS1saXRl')
+    }
   }
 }
 
@@ -129,7 +135,7 @@ export interface OtherSourceConfig {
 }
 
 export interface Config {
-  dataSource: 'awmc' | 'awmc-lite' | 'other'
+  dataSource: 'awmc' | 'other'
   otherSource?: OtherSourceConfig
   enablePush: boolean
   pushTargets?: string[]
@@ -146,8 +152,7 @@ export const Config = Schema.intersect([
   // 数据源设置
   Schema.object({
     dataSource: Schema.union([
-      Schema.const('awmc').description('status.awmc.cc'),
-      Schema.const('awmc-lite').description('status.awmc.cc[lite]'),
+      Schema.const('awmc').description('内置源'),
       Schema.const('other').description('其他'),
     ]).default('awmc').description('数据源'),
   }).description('数据源设置'),
@@ -202,41 +207,36 @@ export const Config = Schema.intersect([
           .min(1)
           .role('table')
           .description('推送目标，格式: user:ID 或 group:ID'),
+        checkInterval: Schema.number()
+          .default(10)
+          .min(1)
+          .description('请求间隔（分钟）：每隔多长时间请求一次状态源（使用内置源时最小为 10）'),
+        statusWindow: Schema.number()
+          .default(10)
+          .min(0)
+          .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更，为 0 时立即通报（使用内置源时最小为 10）'),
       }),
-      // 其他数据源在推送启用时的扩展配置（仅 dataSource = other 时显示）
+      // 频率限制配置
       Schema.union([
         Schema.object({
-          dataSource: Schema.const('other').required(),
-          enablePush: Schema.const(true).required(),
-          checkInterval: Schema.number()
-            .default(10)
-            .min(1)
-            .description('请求间隔（分钟）：每隔多长时间请求一次状态源'),
-          statusWindow: Schema.number()
-            .default(10)
-            .min(0)
-            .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更，为 0 时立即通报'),
+          enableRateLimit: Schema.const(false).description('启用通知频率限制（防止状态反复跳变时刷屏）'),
         }),
-        Schema.object({}),
+        Schema.object({
+          enableRateLimit: Schema.const(true).required().description('启用通知频率限制（防止状态反复跳变时刷屏）'),
+          rateLimitWindow: Schema.number()
+            .default(60)
+            .min(1)
+            .description('统计时长（分钟）：在此时间内统计通知次数'),
+          rateLimitCount: Schema.number()
+            .default(3)
+            .min(1)
+            .description('最多通知次数：窗口内最多发送的通知次数'),
+          rateLimitPause: Schema.number()
+            .default(30)
+            .min(1)
+            .description('暂停时长（分钟）：超过次数后暂停推送的时长'),
+        }),
       ]),
-      // 频率限制配置
-      Schema.object({
-        enableRateLimit: Schema.boolean()
-          .default(true)
-          .description('启用通知频率限制（防止状态反复跳变时刷屏）'),
-        rateLimitWindow: Schema.number()
-          .default(60)
-          .min(1)
-          .description('统计时长（分钟）：在此时间内统计通知次数'),
-        rateLimitCount: Schema.number()
-          .default(3)
-          .min(0)
-          .description('最多通知次数：窗口内最多发送的通知次数，为 0 时关闭该功能'),
-        rateLimitPause: Schema.number()
-          .default(30)
-          .min(1)
-          .description('暂停时长（分钟）：超过次数后暂停推送的时长'),
-      }),
     ]),
   ]),
 ])
@@ -296,21 +296,22 @@ export class MaimaiStatus extends Service {
 
   /** 是否为内置数据源 */
   private isBuiltinSource(): boolean {
-    return this.config.dataSource === 'awmc' || this.config.dataSource === 'awmc-lite'
+    return this.config.dataSource === 'awmc'
   }
 
   /** 请求间隔（ms）：内置源 10 分钟，其他源由用户配置（默认 10 分钟） */
   private getCheckIntervalMs(): number {
-    if (this.isBuiltinSource()) return BUILTIN_CHECK_INTERVAL_MS
-    return (this.config.checkInterval ?? 10) * 60 * 1000
+    const userInterval = (this.config.checkInterval ?? 10) * 60 * 1000
+    if (this.isBuiltinSource()) return Math.max(BUILTIN_CHECK_INTERVAL_MS, userInterval)
+    return userInterval
   }
 
   /** 判定窗口（ms）：内置源固定 10 分钟，其他源可配置（0 = 立即通报） */
   private get statusWindowMs(): number {
-    if (this.isBuiltinSource()) return BUILTIN_STATUS_WINDOW_MS
     const minutes = this.config.statusWindow ?? 10
-    if (minutes === 0) return 0
-    return minutes * 60 * 1000
+    const windowMs = minutes === 0 ? 0 : minutes * 60 * 1000
+    if (this.isBuiltinSource()) return Math.max(BUILTIN_STATUS_WINDOW_MS, windowMs)
+    return windowMs
   }
 
   /** 启动抑制期长度（ms）：2 个判定窗口（窗口为 0 时使用 2 个请求间隔） */
@@ -454,10 +455,7 @@ export class MaimaiStatus extends Service {
 
   private getDataSourceName(): string {
     if (this.config.dataSource === 'awmc') {
-      return 'status.awmc.cc'
-    }
-    if (this.config.dataSource === 'awmc-lite') {
-      return 'status.awmc.cc[lite]'
+      return 'awmc.cc'
     }
 
     const otherSource = this.config.otherSource
@@ -545,21 +543,25 @@ export class MaimaiStatus extends Service {
       return
     }
 
-    await this.doCheck()
+    await this.doCheck(false)
 
     // 如果存在未知状态且未重试过，额外请求一次（仅触发一次）
     if (!this.unknownRechecked && this.hasUnknownGroups()) {
       this.unknownRechecked = true
       this.logDebug(this.t('unknown-status-recheck'))
-      await this.doCheck()
+      await this.doCheck(this.isBuiltinSource())
     }
   }
 
   /** 执行一次状态检查 */
-  private async doCheck() {
+  private async doCheck(useLite: boolean = false) {
     try {
       if (this.isBuiltinSource()) {
-        await this.checkAwmcSource()
+        const success = await this.checkAwmcSource(useLite)
+        if (!success && !useLite) {
+          this.logDebug('Main builtin source failed, falling back to lite source...')
+          await this.checkAwmcSource(true)
+        }
       } else {
         await this.checkOtherSource()
       }
@@ -569,21 +571,21 @@ export class MaimaiStatus extends Service {
     }
   }
 
-  private async checkAwmcSource() {
+  private async checkAwmcSource(useLite: boolean = false): Promise<boolean> {
     // 根据配置源获取对应的API URLs
-    const sourceKey = this.config.dataSource as 'awmc' | 'awmc-lite'
+    const sourceKey = useLite ? 'awmc-lite' : 'awmc'
     const urls = AWMC_STATUS_PAGE_URLS[sourceKey]
     if (!urls) {
       this.logDebug(`Unknown AWMC source: ${sourceKey}`)
-      return
+      return false
     }
 
     const { data: heartbeatData, error: fetchError } = await this.fetchHeartbeats(urls.api)
 
-    if (!heartbeatData) {
+    if (!heartbeatData || fetchError) {
       this.logDebug(`API request failed${fetchError ? `: ${fetchError}` : ''}，trying to sync from web page...`)
       await this.syncServiceNamesFromWeb(urls.web)
-      return
+      return false
     }
 
     if (heartbeatData.uptimeList) {
@@ -593,7 +595,7 @@ export class MaimaiStatus extends Service {
     const list = heartbeatData.heartbeatList
     if (!list) {
       this.logDebug(`Invalid heartbeat data format`)
-      return
+      return false
     }
 
     const needWebSync = this.checkForNewServiceIds(list)
@@ -603,6 +605,7 @@ export class MaimaiStatus extends Service {
 
     this.syncUnknownGroups(list)
     await this.analyzeAndNotify(list)
+    return true
   }
 
   private checkForNewServiceIds(heartbeatData: any): boolean {
@@ -815,7 +818,6 @@ export class MaimaiStatus extends Service {
 
   private getDataSourceKey(): string {
     if (this.config.dataSource === 'awmc') return 'awmc'
-    if (this.config.dataSource === 'awmc-lite') return 'awmc-lite'
     const other = this.config.otherSource
     if (!other) return 'other_unknown'
     if (other.preset === 'custom') {
@@ -1077,13 +1079,15 @@ export class MaimaiStatus extends Service {
 
     // 获取当前快照的聚合状态
     const latest = statusHistory[statusHistory.length - 1]
-    let currentAggStatus: 'ONLINE' | 'OFFLINE' | 'OTHER' = 'OTHER'
+    let currentAggStatus: 'ONLINE' | 'OFFLINE' | 'MAINTENANCE' | 'UNSTABLE' | 'OTHER' = 'OTHER'
     if (latest.allUp) currentAggStatus = 'ONLINE'
     else if (latest.allDown) currentAggStatus = 'OFFLINE'
+    else if (latest.allMaintenance) currentAggStatus = 'MAINTENANCE'
+    else if (latest.allPending) currentAggStatus = 'UNSTABLE'
 
     // ── 启动抑制期：记录初始状态但不推送，不计入频率限制 ──
     if (this.isInSuppressPeriod()) {
-      if (currentAggStatus === 'ONLINE' || currentAggStatus === 'OFFLINE') {
+      if (currentAggStatus !== 'OTHER') {
         group.lastNotifiedStatus = currentAggStatus
       }
       this.logDebug(`[${groupName}] ${this.t('startup-suppress')}，status: ${currentAggStatus}`)
@@ -1097,13 +1101,18 @@ export class MaimaiStatus extends Service {
 
     // ── 立即模式（判定窗口 = 0）──
     if (windowMs === 0) {
-      // 仅 ONLINE/OFFLINE 之间的变更才推送
       if (currentAggStatus === 'OTHER') return null
       if (currentAggStatus === lastNotifiedStatus) return null
 
       group.lastNotifiedStatus = currentAggStatus
       group.statusHistory = [latest]
-      const statusText = currentAggStatus === 'ONLINE' ? this.t('online') : this.t('offline')
+
+      let statusText = this.t('unknown')
+      if (currentAggStatus === 'ONLINE') statusText = this.t('online')
+      else if (currentAggStatus === 'OFFLINE') statusText = this.t('offline')
+      else if (currentAggStatus === 'MAINTENANCE') statusText = this.t('maintenance')
+      else if (currentAggStatus === 'UNSTABLE') statusText = this.t('pending')
+
       this.logDebug(`[${groupName}] 即时模式状态变更: ${statusText}`)
       return `${groupName} ${statusText}`
     }
@@ -1118,12 +1127,15 @@ export class MaimaiStatus extends Service {
       // 窗口内所有采样点一致性判定
       const allUpInWindow = statusHistory.every(h => h.allUp)
       const allDownInWindow = statusHistory.every(h => h.allDown)
+      const allMaintenanceInWindow = statusHistory.every(h => h.allMaintenance)
+      const allPendingInWindow = statusHistory.every(h => h.allPending)
 
-      let targetStatus: 'ONLINE' | 'OFFLINE' | null = null
+      let targetStatus: 'ONLINE' | 'OFFLINE' | 'MAINTENANCE' | 'UNSTABLE' | null = null
       if (allUpInWindow) targetStatus = 'ONLINE'
       else if (allDownInWindow) targetStatus = 'OFFLINE'
+      else if (allMaintenanceInWindow) targetStatus = 'MAINTENANCE'
+      else if (allPendingInWindow) targetStatus = 'UNSTABLE'
 
-      // 窗口内不一致或不是 ONLINE/OFFLINE → 不推送（MAINTENANCE/UNSTABLE 仅记录）
       if (!targetStatus) return null
 
       // 与上次通知状态相同 → 跳过
@@ -1131,7 +1143,13 @@ export class MaimaiStatus extends Service {
 
       group.lastNotifiedStatus = targetStatus
       group.statusHistory = []
-      const statusText = targetStatus === 'ONLINE' ? this.t('online') : this.t('offline')
+
+      let statusText = this.t('unknown')
+      if (targetStatus === 'ONLINE') statusText = this.t('online')
+      else if (targetStatus === 'OFFLINE') statusText = this.t('offline')
+      else if (targetStatus === 'MAINTENANCE') statusText = this.t('maintenance')
+      else if (targetStatus === 'UNSTABLE') statusText = this.t('pending')
+
       this.logDebug(`[${groupName}] 状态变更: ${statusText}`)
       return `${groupName} ${statusText}`
     } else {
