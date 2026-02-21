@@ -241,11 +241,28 @@ interface MonitorItem {
   tags: any[]
 }
 
+type AggregatedStatus = 'ONLINE' | 'OFFLINE' | 'MAINTENANCE' | 'UNSTABLE' | 'OTHER'
+
+interface StatusSnapshot {
+  timestamp: number
+  status: AggregatedStatus
+}
+
 interface ServiceGroup {
   groupName: string
   ids: number[]
-  lastNotifiedStatus: 'ONLINE' | 'OFFLINE' | 'MAINTENANCE' | 'UNSTABLE' | null
-  statusHistory: { timestamp: number; allUp: boolean; allDown: boolean; allMaintenance: boolean; allPending: boolean }[]
+  /** 已确认的状态（经过判定区间验证） */
+  confirmedStatus: AggregatedStatus | null
+  /** 最近一次快照的状态（用于 getStatusSummary 显示） */
+  latestSnapshotStatus: AggregatedStatus | null
+  /** 当前判定区间内收集的快照 */
+  currentIntervalSnapshots: StatusSnapshot[]
+  /** 当前判定区间的起始时间 */
+  intervalStartTime: number | null
+  /** 初始状态是否已确认 */
+  initialStatusConfirmed: boolean
+  /** 抑制通报直到此时间戳 */
+  suppressUntil: number
 }
 
 interface CachedServiceNames {
@@ -332,7 +349,7 @@ export class MaimaiStatus extends Service {
   private hasUnknownGroups(): boolean {
     if (this.groups.size === 0) return true
     for (const group of this.groups.values()) {
-      if (group.statusHistory.length === 0) return true
+      if (group.latestSnapshotStatus === null && group.currentIntervalSnapshots.length === 0) return true
     }
     return false
   }
@@ -501,17 +518,17 @@ export class MaimaiStatus extends Service {
     const lines: string[] = [this.t('header')]
 
     for (const [name, group] of this.groups) {
-      const latest = group.statusHistory[group.statusHistory.length - 1]
+      const displayStatus = group.latestSnapshotStatus ?? group.confirmedStatus
       let statusText = this.t('unknown')
 
-      if (latest) {
-        if (latest.allUp) {
+      if (displayStatus) {
+        if (displayStatus === 'ONLINE') {
           statusText = this.t('online')
-        } else if (latest.allMaintenance) {
+        } else if (displayStatus === 'MAINTENANCE') {
           statusText = this.t('maintenance')
-        } else if (latest.allDown) {
+        } else if (displayStatus === 'OFFLINE') {
           statusText = this.t('offline')
-        } else if (latest.allPending) {
+        } else if (displayStatus === 'UNSTABLE') {
           statusText = this.t('pending')
         } else {
           statusText = this.t('partial')
@@ -796,12 +813,7 @@ export class MaimaiStatus extends Service {
 
       let group = this.groups.get(normalizedName)
       if (!group) {
-        group = {
-          groupName: normalizedName,
-          ids: [],
-          lastNotifiedStatus: null,
-          statusHistory: []
-        }
+        group = this.createServiceGroup(normalizedName)
         this.groups.set(normalizedName, group)
       }
 
@@ -886,12 +898,7 @@ export class MaimaiStatus extends Service {
         let group = this.groups.get(normalizedName)
         if (!group) {
           this.logDebug(`${this.t('detected-new-service')}: ${normalizedName} (Includes ID: ${id})`)
-          group = {
-            groupName: normalizedName,
-            ids: [],
-            lastNotifiedStatus: null,
-            statusHistory: []
-          }
+          group = this.createServiceGroup(normalizedName)
           this.groups.set(normalizedName, group)
         }
 
@@ -982,12 +989,9 @@ export class MaimaiStatus extends Service {
 
     for (const [name, ids] of currentStructure) {
       if (!this.groups.has(name)) {
-        this.groups.set(name, {
-          groupName: name,
-          ids,
-          lastNotifiedStatus: null,
-          statusHistory: []
-        })
+        const group = this.createServiceGroup(name)
+        group.ids = ids
+        this.groups.set(name, group)
       } else {
         const existing = this.groups.get(name)!
         existing.ids = ids
@@ -1058,15 +1062,25 @@ export class MaimaiStatus extends Service {
         }
       }
 
-      const allUp = totalCount > 0 && upCount === totalCount
-      const allDown = totalCount > 0 && downCount === totalCount
-      const allMaintenance = totalCount > 0 && maintenanceCount === totalCount
-      const allPending = totalCount > 0 && pendingCount === totalCount
+      // 聚合为单一状态快照
+      let snapshotStatus: AggregatedStatus = 'OTHER'
+      if (totalCount > 0) {
+        if (upCount === totalCount) snapshotStatus = 'ONLINE'
+        else if (downCount === totalCount) snapshotStatus = 'OFFLINE'
+        else if (maintenanceCount === totalCount) snapshotStatus = 'MAINTENANCE'
+        else if (pendingCount === totalCount) snapshotStatus = 'UNSTABLE'
+      }
 
-      group.statusHistory.push({ timestamp: now, allUp, allDown, allMaintenance, allPending })
-      group.statusHistory = group.statusHistory.filter(h => now - h.timestamp < this.statusWindowMs)
+      // 更新最近快照状态（用于手动查询显示）
+      group.latestSnapshotStatus = snapshotStatus
 
-      const message = await this.checkAndNotify(group, now)
+      // 将快照加入当前判定区间
+      if (group.intervalStartTime === null) {
+        group.intervalStartTime = now
+      }
+      group.currentIntervalSnapshots.push({ timestamp: now, status: snapshotStatus })
+
+      const message = this.checkAndNotify(group, now)
       if (message) {
         messages.push(message)
       }
@@ -1079,102 +1093,129 @@ export class MaimaiStatus extends Service {
     }
   }
 
-  private async checkAndNotify(group: ServiceGroup, now: number): Promise<string | null> {
-    const { groupName, statusHistory, lastNotifiedStatus } = group
+  /** 创建新的 ServiceGroup 实例 */
+  private createServiceGroup(name: string): ServiceGroup {
+    return {
+      groupName: name,
+      ids: [],
+      confirmedStatus: null,
+      latestSnapshotStatus: null,
+      currentIntervalSnapshots: [],
+      intervalStartTime: null,
+      initialStatusConfirmed: false,
+      suppressUntil: 0
+    }
+  }
 
-    if (statusHistory.length === 0) return null
+  /**
+   * 判定区间完成后的状态变更检查（同步方法）
+   *
+   * 判定逻辑（顺序执行）：
+   * 1. 当前判定区间内的所有状态是否一致？（是→下一步；否→丢弃）
+   * 2. 前一个状态是否与当前判定区间内的不一致？（是→下一步；否→丢弃）
+   * 3. 状态是否为 ONLINE 或 OFFLINE？（是→通报；否→丢弃）
+   *
+   * 初始状态规则：
+   * - 首个判定区间完成后，以区间内较多数的状态作为初始状态
+   * - 初始状态确认后的 2 个判定区间内的通报全部舍弃，不计入次数
+   */
+  private checkAndNotify(group: ServiceGroup, now: number): string | null {
+    const { groupName, currentIntervalSnapshots, confirmedStatus } = group
+    const windowMs = this.statusWindowMs
 
-    // 获取当前快照的聚合状态
-    const latest = statusHistory[statusHistory.length - 1]
-    let currentAggStatus: 'ONLINE' | 'OFFLINE' | 'MAINTENANCE' | 'UNSTABLE' | 'OTHER' = 'OTHER'
-    if (latest.allUp) currentAggStatus = 'ONLINE'
-    else if (latest.allDown) currentAggStatus = 'OFFLINE'
-    else if (latest.allMaintenance) currentAggStatus = 'MAINTENANCE'
-    else if (latest.allPending) currentAggStatus = 'UNSTABLE'
+    if (currentIntervalSnapshots.length === 0) return null
 
-    // ── 启动抑制期：记录初始状态但不推送，不计入频率限制 ──
-    if (this.isInSuppressPeriod()) {
-      if (currentAggStatus !== 'OTHER') {
-        group.lastNotifiedStatus = currentAggStatus
+    // ── 判定区间是否已满 ──
+    const intervalDuration = now - (group.intervalStartTime ?? now)
+    const checkIntervalMs = this.getCheckIntervalMs()
+    const intervalReady = windowMs === 0
+      || intervalDuration >= windowMs
+      || checkIntervalMs >= windowMs
+
+    if (!intervalReady) {
+      this.logDebug(`[${groupName}] 区间未就绪: ${Math.round(intervalDuration / 1000)}s < ${windowMs / 1000}s`)
+      return null
+    }
+
+    // ── 初始状态确认（首个区间，多数投票） ──
+    if (!group.initialStatusConfirmed) {
+      const statusCounts: Partial<Record<AggregatedStatus, number>> = {}
+      for (const snap of currentIntervalSnapshots) {
+        statusCounts[snap.status] = (statusCounts[snap.status] || 0) + 1
       }
-      this.logDebug(`[${groupName}] ${this.t('startup-suppress')}，status: ${currentAggStatus}`)
+
+      let majorityStatus: AggregatedStatus = 'OTHER'
+      let maxCount = 0
+      for (const [status, count] of Object.entries(statusCounts)) {
+        if (count > maxCount) {
+          maxCount = count
+          majorityStatus = status as AggregatedStatus
+        }
+      }
+
+      group.confirmedStatus = majorityStatus
+      group.initialStatusConfirmed = true
+      group.suppressUntil = now + 2 * (windowMs > 0 ? windowMs : checkIntervalMs)
+      group.currentIntervalSnapshots = []
+      group.intervalStartTime = null
+
+      this.logDebug(
+        `[${groupName}] 初始状态确认: ${majorityStatus}，` +
+        `抑制至: ${new Date(group.suppressUntil).toLocaleTimeString()}`
+      )
+      return null
+    }
+
+    // ── 条件 1：当前判定区间内的所有状态是否一致？ ──
+    const firstStatus = currentIntervalSnapshots[0].status
+    const allConsistent = currentIntervalSnapshots.every(snap => snap.status === firstStatus)
+
+    if (!allConsistent) {
+      // 区间内状态不一致 → 丢弃区间，重新开始
+      group.currentIntervalSnapshots = []
+      group.intervalStartTime = null
+      this.logDebug(`[${groupName}] 区间内状态不一致，丢弃`)
+      return null
+    }
+
+    const intervalStatus = firstStatus
+
+    // ── 条件 2：前一个状态是否与当前判定区间内的不一致？ ──
+    if (intervalStatus === confirmedStatus) {
+      // 相同 → 将前一次的状态复制到当前判定区间，移除前一个判定区间的数据
+      group.currentIntervalSnapshots = []
+      group.intervalStartTime = null
+      this.logDebug(`[${groupName}] 状态与前一次相同 (${intervalStatus})，保持`)
+      return null
+    }
+
+    // 状态不同 → 重新创建状态（更新 confirmedStatus）
+    group.confirmedStatus = intervalStatus
+    group.currentIntervalSnapshots = []
+    group.intervalStartTime = null
+
+    // ── 抑制期检查 ──
+    if (now < group.suppressUntil) {
+      this.logDebug(`[${groupName}] 抑制期内，跳过通报 (status: ${intervalStatus})`)
+      return null
+    }
+
+    // ── 条件 3：状态是否为 ONLINE 或 OFFLINE？ ──
+    if (intervalStatus !== 'ONLINE' && intervalStatus !== 'OFFLINE') {
+      this.logDebug(`[${groupName}] 状态 ${intervalStatus} 非 ONLINE/OFFLINE，不通报`)
       return null
     }
 
     // 推送未开启时不通知
     if (!this.config.enablePush) return null
 
-    const windowMs = this.statusWindowMs
-
-    // ── 立即模式（判定窗口 = 0）──
-    if (windowMs === 0) {
-      if (currentAggStatus === 'OTHER') return null
-      if (currentAggStatus === lastNotifiedStatus) return null
-
-      group.lastNotifiedStatus = currentAggStatus
-      group.statusHistory = [latest]
-
-      let statusText = this.t('unknown')
-      if (currentAggStatus === 'ONLINE') statusText = this.t('online')
-      else if (currentAggStatus === 'OFFLINE') statusText = this.t('offline')
-      else if (currentAggStatus === 'MAINTENANCE') statusText = this.t('maintenance')
-      else if (currentAggStatus === 'UNSTABLE') statusText = this.t('pending')
-
-      this.logDebug(`[${groupName}] 即时模式状态变更: ${statusText}`)
-      return `${groupName} ${statusText}`
-    }
-
-    // ── 窗口模式 ──
-    const oldest = statusHistory[0]
-    const windowDuration = now - oldest.timestamp
-    const checkIntervalMs = this.getCheckIntervalMs()
-
-    // 窗口就绪条件：时间跨度 >= 窗口期，或检查间隔 >= 窗口期（单次即可代表）
-    if (windowDuration >= windowMs || checkIntervalMs >= windowMs) {
-      // 窗口内所有采样点一致性判定
-      const allUpInWindow = statusHistory.every(h => h.allUp)
-      const allDownInWindow = statusHistory.every(h => h.allDown)
-      const allMaintenanceInWindow = statusHistory.every(h => h.allMaintenance)
-      const allPendingInWindow = statusHistory.every(h => h.allPending)
-
-      let targetStatus: 'ONLINE' | 'OFFLINE' | 'MAINTENANCE' | 'UNSTABLE' | null = null
-      if (allUpInWindow) targetStatus = 'ONLINE'
-      else if (allDownInWindow) targetStatus = 'OFFLINE'
-      else if (allMaintenanceInWindow) targetStatus = 'MAINTENANCE'
-      else if (allPendingInWindow) targetStatus = 'UNSTABLE'
-
-      if (!targetStatus) return null
-
-      // 与上次通知状态相同 → 跳过
-      if (targetStatus === lastNotifiedStatus) return null
-
-      group.lastNotifiedStatus = targetStatus
-      group.statusHistory = []
-
-      let statusText = this.t('unknown')
-      if (targetStatus === 'ONLINE') statusText = this.t('online')
-      else if (targetStatus === 'OFFLINE') statusText = this.t('offline')
-      else if (targetStatus === 'MAINTENANCE') statusText = this.t('maintenance')
-      else if (targetStatus === 'UNSTABLE') statusText = this.t('pending')
-
-      this.logDebug(`[${groupName}] 状态变更: ${statusText}`)
-      return `${groupName} ${statusText}`
-    } else {
-      if (this.debugEnabled) {
-        this.logDebug(`[${groupName}] 窗口未就绪: ${Math.round(windowDuration / 1000)}s < ${windowMs / 1000}s`)
-      }
-      return null
-    }
+    const statusText = intervalStatus === 'ONLINE' ? this.t('online') : this.t('offline')
+    this.logDebug(`[${groupName}] 状态变更通报: ${statusText}`)
+    return `${groupName} ${statusText}`
   }
 
   private async pushNotification(message: string) {
     if (!this.config.enablePush || !this.config.pushTargets) return
-
-    // 启动抑制期内不推送，且不计入频率限制
-    if (this.isInSuppressPeriod()) {
-      this.logDebug(this.t('startup-suppress'))
-      return
-    }
 
     // 频率限制检查
     if (this.config.enableRateLimit) {
