@@ -263,6 +263,8 @@ interface ServiceGroup {
   initialStatusConfirmed: boolean
   /** 抑制通报直到此时间戳 */
   suppressUntil: number
+  /** 最后一次实际通报的状态（用于判断是否需要通报） */
+  lastNotifiedStatus: AggregatedStatus | null
 }
 
 interface CachedServiceNames {
@@ -1037,6 +1039,7 @@ export class MaimaiStatus extends Service {
   private async analyzeAndNotify(heartbeatData: any) {
     const now = Date.now()
     const messages: string[] = []
+    const notifiedStatuses = new Map<ServiceGroup, AggregatedStatus>()
 
     for (const [, group] of this.groups) {
       const { ids } = group
@@ -1080,9 +1083,11 @@ export class MaimaiStatus extends Service {
       }
       group.currentIntervalSnapshots.push({ timestamp: now, status: snapshotStatus })
 
-      const message = this.checkAndNotify(group, now)
-      if (message) {
-        messages.push(message)
+      const result = this.checkAndNotify(group, now)
+      if (result) {
+        messages.push(result.message)
+        // 记录此次通报的状态，以便后续更新 lastNotifiedStatus
+        notifiedStatuses.set(group, result.status)
       }
     }
 
@@ -1090,6 +1095,10 @@ export class MaimaiStatus extends Service {
     if (messages.length > 0) {
       const combinedMessage = messages.join('\n')
       await this.pushNotification(combinedMessage)
+      // 所有消息成功发送后，更新每个监测点的 lastNotifiedStatus
+      for (const [group, status] of notifiedStatuses) {
+        group.lastNotifiedStatus = status
+      }
     }
   }
 
@@ -1103,7 +1112,8 @@ export class MaimaiStatus extends Service {
       currentIntervalSnapshots: [],
       intervalStartTime: null,
       initialStatusConfirmed: false,
-      suppressUntil: 0
+      suppressUntil: 0,
+      lastNotifiedStatus: null
     }
   }
 
@@ -1113,13 +1123,16 @@ export class MaimaiStatus extends Service {
    * 判定逻辑（顺序执行）：
    * 1. 当前判定区间内的所有状态是否一致？（是→下一步；否→丢弃）
    * 2. 前一个状态是否与当前判定区间内的不一致？（是→下一步；否→丢弃）
-   * 3. 状态是否为 ONLINE 或 OFFLINE？（是→通报；否→丢弃）
+   * 3. 状态是否为 ONLINE 或 OFFLINE？（是→下一步；否→丢弃）
+   * 4. 状态是否与最后一次通报的状态相同？（是→丢弃；否→通报）
    *
    * 初始状态规则：
    * - 首个判定区间完成后，以区间内较多数的状态作为初始状态
    * - 初始状态确认后的 2 个判定区间内的通报全部舍弃，不计入次数
+   *
+   * @returns 返回对象包含 status 和 message，如果都满足条件则返回 {status, message}，否则返回 null
    */
-  private checkAndNotify(group: ServiceGroup, now: number): string | null {
+  private checkAndNotify(group: ServiceGroup, now: number): { status: AggregatedStatus; message: string } | null {
     const { groupName, currentIntervalSnapshots, confirmedStatus } = group
     const windowMs = this.statusWindowMs
 
@@ -1154,6 +1167,7 @@ export class MaimaiStatus extends Service {
       }
 
       group.confirmedStatus = majorityStatus
+      group.lastNotifiedStatus = majorityStatus
       group.initialStatusConfirmed = true
       group.suppressUntil = now + 2 * (windowMs > 0 ? windowMs : checkIntervalMs)
       group.currentIntervalSnapshots = []
@@ -1189,7 +1203,7 @@ export class MaimaiStatus extends Service {
       return null
     }
 
-    // 状态不同 → 重新创建状态（更新 confirmedStatus）
+    // 状态不同 → 更新确认状态（但不更新通报状态）
     group.confirmedStatus = intervalStatus
     group.currentIntervalSnapshots = []
     group.intervalStartTime = null
@@ -1206,12 +1220,18 @@ export class MaimaiStatus extends Service {
       return null
     }
 
+    // ── 条件 4（新增）：状态是否与最后一次通报的状态相同？ ──
+    if (intervalStatus === group.lastNotifiedStatus) {
+      this.logDebug(`[${groupName}] 状态与最后一次通报相同 (${intervalStatus})，跳过通报`)
+      return null
+    }
+
     // 推送未开启时不通知
     if (!this.config.enablePush) return null
 
     const statusText = intervalStatus === 'ONLINE' ? this.t('online') : this.t('offline')
     this.logDebug(`[${groupName}] 状态变更通报: ${statusText}`)
-    return `${groupName} ${statusText}`
+    return { status: intervalStatus, message: `${groupName} ${statusText}` }
   }
 
   private async pushNotification(message: string) {
