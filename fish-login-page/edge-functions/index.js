@@ -3,20 +3,14 @@
  * ES Module format for Alibaba Cloud ESA
  */
 
-// ============================================================================
-// ⚠️ 配置区域 / CONFIGURATION AREA
-// ============================================================================
-
-// 请将下方的字符串替换为你的 32 位随机字符串 (必须与 Koishi 插件配置一致)
-// Please replace the string below with your 32-char token (must match plugin config)
-const AUTH_TOKEN = '12345678901234567890123456789012'
-
-// ============================================================================
-
 const IV_LENGTH = 12
 const TAG_LENGTH = 16
 
 async function handleApiRequest(request) {
+    // 从环境变量读取 AUTH_TOKEN
+    // 支持：阿里云 ESA (process.env.AUTHTOKEN) 和腾讯 EdgeOne (process.env.AUTHTOKEN)
+    const AUTH_TOKEN = process.env.AUTHTOKEN || ''
+
     const corsHeaders = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -38,7 +32,7 @@ async function handleApiRequest(request) {
     if (!AUTH_TOKEN || AUTH_TOKEN.length !== 32) {
         return new Response(JSON.stringify({
             success: false,
-            error: '服务器配置错误：请在 edge-functions/index.js 中配置正确的 AUTH_TOKEN'
+            error: '服务器配置错误：环境变量 AUTHTOKEN 未设置或长度不为 32'
         }), { headers: corsHeaders, status: 500 })
     }
 

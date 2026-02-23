@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "name": "fish-login-page",
+  "buildConfig": {
+    "buildCommand": "",
+    "outputDir": "public",
+    "rootDir": "./"
+  },
+  "envVariables": {
+    "production": {
+      "AUTHTOKEN": "set-in-edgeone-console"
+    },
+    "preview": {
+      "AUTHTOKEN": "set-in-edgeone-console"
+    }
+  },
+  "functions": [
+    {
+      "name": "generate-token",
+      "runtime": "nodejs20",
+      "memorySize": 128,
+      "timeout": 30,
+      "handler": "edge-functions/index.handler",
+      "exclude": ["node_modules/**"],
+      "events": [
+        {
+          "http": {
+            "path": "/api/generate-token",
+            "method": ["post", "options"]
+          }
+        }
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "path": "/api/generate-token",
+      "function": "generate-token"
+    },
+    {
+      "path": "/static/**",
+      "cache": {
+        "maxAge": 2592000
+      }
+    },
+    {
+      "path": "/**",
+      "rewrite": "/index.html",
+      "statusCode": 200
+    }
+  ],
+  "headers": {
+    "/api/**": {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization"
+    }
+  },
+  "caching": {
+    "default": 0,
+    "html": 0,
+    "static": 2592000,
+    "api": 0
+  }
+}
