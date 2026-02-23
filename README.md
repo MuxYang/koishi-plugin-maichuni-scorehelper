@@ -1,5 +1,7 @@
 # Fish Login Page
 
+注：本文档使用AI生成，具体部署步骤可能有所不同，请以实际平台界面为准。
+
 用户通过此页面输入 DivingFish 账号密码，生成加密登录令牌供 Koishi Bot 使用。
 
 ## 工作原理
@@ -14,12 +16,7 @@
 
 ## 快速选择
 
-| 方案 | 特点 | 难度 | 推荐人群 |
-|------|------|------|--------|
-| GitHub Pages | 完全免费，无需配置 | 最简 | 初级用户 |
-| Cloudflare Pages | 全球加速，自动HTTPS | 简 | 一般用户 |
-| 阿里云 ESA | 国内最快，高度可定制 | 中 | 国内用户 |
-| 腾讯 EdgeOne | 腾讯云生态，国内优化 | 中 | 腾讯云用户 |
+您可以使用Github Pages、Cloudflare Pages、阿里云 ESA 或腾讯 EdgeOne 等平台部署此登录页面。
 
 ---
 
@@ -27,10 +24,10 @@
 
 ### GitHub Pages（最简单）
 
-**特殊说明**：GitHub Pages 不支持环境变量，AUTH_TOKEN 需硬编码在代码中。
+**特殊说明**：GitHub Pages 不支持环境变量，AUTH_TOKEN 需硬编码在代码中，故您需要配置为私有仓库。
 
 #### 1. Fork 仓库
-进入本项目 GitHub 页面，点击 Fork
+进入本项目 GitHub 页面，点击 Fork，注意只需要Fork page分支即可。
 
 #### 2. 配置 AUTH_TOKEN（必须步骤）
 编辑 `fish-login-page/edge-functions/index.js`，找到第 12 行，修改为硬编码的 32 字节字符串：
@@ -66,30 +63,33 @@ node -e "console.log(require('crypto').randomBytes(16).toString('hex'))"
 
 ### Cloudflare Pages
 
-#### 1. 连接 GitHub
+#### 1. Fork 仓库
+进入本项目 GitHub 页面，点击 Fork，注意只需要Fork page分支即可。
+
+#### 2. 连接 GitHub
 1. 登录 Cloudflare Dashboard
 2. Pages → Create a project → Connect to Git
 3. 授权并选择 fish-login-page 仓库
 
-#### 2. 配置构建
+#### 3. 配置构建
 - Framework preset: None
 - Build command: 留空
 - Build output directory: `public`
 - Root directory: `fish-login-page`（如需要）
 
-#### 3. 环境变量
+#### 4. 环境变量
 在 Pages 项目 → Settings → Environment variables 中添加：
 ```
 AUTHTOKEN = 你的32字节字符串
 ```
 
-#### 4. 部署
+#### 5. 部署
 点击 Deploy，稍等片刻后将生成部署 URL
 
-#### 5. 自定义域名（可选）
+#### 6. 自定义域名（可选）
 Pages 项目 → Settings → Domains → Add custom domain
 
-#### 6. 自动部署（可选）
+#### 7. 自动部署（可选）
 需要配置 GitHub Secrets 实现自动部署：
 ```
 CLOUDFLARE_ACCOUNT_ID
@@ -103,13 +103,13 @@ CLOUDFLARE_API_TOKEN
 
 #### 1. 创建 ESA 项目
 1. 进入 [阿里云 ESA 控制台](https://esa.console.aliyun.com)
-2. 项目管理 → 创建项目
-3. 项目名：fish-login-page，项目类型：Serverless 应用
+2. 函数与Pages → 项目管理 → 创建项目
+3. 项目名：fish-login-page。
 
 #### 2. 关联 GitHub
 1. 选择"使用 GitHub 创建"
 2. 授权阿里云访问 GitHub
-3. 选择仓库和 main 分支
+3. 选择您Fork到您账户下的本仓库的`page`分支
 
 #### 3. 构建配置
 - 输出目录: `public`
@@ -121,10 +121,7 @@ CLOUDFLARE_API_TOKEN
 AUTHTOKEN = 你的32字节字符串
 ```
 
-#### 5. 边缘函数
-启用边缘函数，配置路由使用 `/edge-functions/index.js` 处理 `/api/generate-token` 请求。
-
-#### 6. 部署
+#### 5. 部署
 点击部署，获得测试 URL（通常 1-3 分钟）
 
 **配置文件**：可编辑 `esa.json` 自定义路由、缓存等
@@ -158,17 +155,6 @@ AUTHTOKEN = 你的32字节字符串
 点击立即部署，等待完成（2-5 分钟）
 
 **配置文件**：可编辑 `tcb.json` 和 `edgeone-config.json` 自定义配置
-
-#### 6. 自动部署（可选）
-需要配置 GitHub Secrets 实现自动部署：
-```
-TENCENTCLOUD_SECRET_ID
-TENCENTCLOUD_SECRET_KEY
-TENCENTCLOUD_PROJECT_ID
-```
-项目会自动使用工作流 `.github/workflows/deploy-edgeone.yml` 部署
-
----
 
 ## 环境变量
 
