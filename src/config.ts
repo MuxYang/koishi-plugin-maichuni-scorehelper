@@ -20,7 +20,7 @@ export interface MaichuniConfig {
 export const Config: Schema<MaichuniConfig> = Schema.intersect([
     Schema.object({
         loginPageUrl: Schema.string()
-            .description('登录页面 URL'),
+            .description('水鱼登录页面 URL（见本项目仓库中fish-login-page文件夹，可在阿里云ESA或Cloudflare Pages部署）'),
     }).description('登录认证'),
     Schema.object({
         divingfishDevToken: Schema.string()
