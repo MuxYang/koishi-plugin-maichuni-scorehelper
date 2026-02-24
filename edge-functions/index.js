@@ -9,7 +9,7 @@ const TAG_LENGTH = 16
 async function handleApiRequest(request) {
     // 从环境变量读取 AUTH_TOKEN
     // 支持：阿里云 ESA (process.env.AUTHTOKEN) 和腾讯 EdgeOne (process.env.AUTHTOKEN)
-    const AUTH_TOKEN = process.env.AUTHTOKEN || ''
+    const AUTH_TOKEN = 'a33c6a98e847acf1765736cb6d00853b'
 
     const corsHeaders = {
         'Access-Control-Allow-Origin': '*',
