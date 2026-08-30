@@ -7,14 +7,8 @@ const _decode = (str: string) => Buffer.from(str, 'base64').toString('utf8')
 const AWMC_STATUS_PAGE_URLS: Record<string, { web: string; api: string }> = {
   get 'awmc'() {
     return {
-      web: _decode('aHR0cHM6Ly9zdGF0dXMuYXdtYy5jYy9zdGF0dXMvbWFpbWFp'),
-      api: _decode('aHR0cHM6Ly9zdGF0dXMuYXdtYy5jYy9hcGkvc3RhdHVzLXBhZ2UvaGVhcnRiZWF0L21haW1haQ==')
-    }
-  },
-  get 'awmc-lite'() {
-    return {
-      web: _decode('aHR0cHM6Ly9zdGF0dXMuYXdtYy5jYy9zdGF0dXMvbWFpbWFpLWxpdGU='),
-      api: _decode('aHR0cHM6Ly9zdGF0dXMuYXdtYy5jYy9hcGkvc3RhdHVzLXBhZ2UvaGVhcnRiZWF0L21haW1haS1saXRl')
+      web: _decode('aHR0cHM6Ly9zdGF0dXMuYXdtYy50ZWFtL3N0YXR1cy9tYWltYWk='),
+      api: _decode('aHR0cHM6Ly9zdGF0dXMuYXdtYy50ZWFtL2FwaS9zdGF0dXMtcGFnZS9oZWFydGJlYXQvbWFpbWFp')
     }
   }
 }
@@ -201,13 +195,13 @@ export const Config = Schema.intersect([
         .role('table')
         .description('推送目标，格式: user:ID 或 group:ID'),
       checkInterval: Schema.number()
-        .default(10)
+        .default(5)
         .min(1)
-        .description('请求间隔（分钟）：每隔多长时间请求一次状态源（使用内置源时最小为 10）'),
+        .description('请求间隔（分钟）：每隔多长时间请求一次状态源（使用内置源时最小为 5）'),
       statusWindow: Schema.number()
-        .default(10)
+        .default(5)
         .min(0)
-        .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更，为 0 时立即通报（使用内置源时最小为 10）'),
+        .description('判定窗口（分钟）：窗口内状态全部一致才视为状态变更，为 0 时立即通报（使用内置源时最小为 5）'),
       enableRateLimit: Schema.boolean().default(false).description('启用通知频率限制（防止状态反复跳变时刷屏）'),
     }),
     Schema.object({}),
@@ -277,8 +271,8 @@ declare module 'koishi' {
   }
 }
 
-const BUILTIN_STATUS_WINDOW_MS = 10 * 60 * 1000   // 内置源判定窗口：10 分钟
-const BUILTIN_CHECK_INTERVAL_MS = 10 * 60 * 1000   // 内置源请求间隔：10 分钟
+const BUILTIN_STATUS_WINDOW_MS = 5 * 60 * 1000   // 内置源判定窗口：5 分钟
+const BUILTIN_CHECK_INTERVAL_MS = 5 * 60 * 1000   // 内置源请求间隔：5 分钟
 const BACKGROUND_POLL_MS = 60 * 60 * 1000           // 推送关闭时后台轮询：60 分钟
 
 export class MaimaiStatus extends Service {
@@ -569,7 +563,7 @@ export class MaimaiStatus extends Service {
       return
     }
 
-    await this.doCheck(false)
+    await this.doCheck()
 
     // 如果存在未知状态且未重试过，额外请求一次（仅触发一次）
     if (!this.unknownRechecked && this.hasUnknownGroups()) {
@@ -580,14 +574,10 @@ export class MaimaiStatus extends Service {
   }
 
   /** 执行一次状态检查 */
-  private async doCheck(useLite: boolean = false) {
+  private async doCheck() {
     try {
       if (this.isBuiltinSource()) {
-        const success = await this.checkAwmcSource(useLite)
-        if (!success && !useLite) {
-          this.logDebug('Main builtin source failed, falling back to lite source...')
-          await this.checkAwmcSource(true)
-        }
+        await this.checkAwmcSource()
       } else {
         await this.checkOtherSource()
       }
@@ -597,14 +587,8 @@ export class MaimaiStatus extends Service {
     }
   }
 
-  private async checkAwmcSource(useLite: boolean = false): Promise<boolean> {
-    // 根据配置源获取对应的API URLs
-    const sourceKey = useLite ? 'awmc-lite' : 'awmc'
-    const urls = AWMC_STATUS_PAGE_URLS[sourceKey]
-    if (!urls) {
-      this.logDebug(`Unknown AWMC source: ${sourceKey}`)
-      return false
-    }
+  private async checkAwmcSource(): Promise<boolean> {
+    const urls = AWMC_STATUS_PAGE_URLS['awmc']
 
     const { data: heartbeatData, error: fetchError } = await this.fetchHeartbeats(urls.api)
 
