@@ -569,7 +569,7 @@ export class MaimaiStatus extends Service {
     if (!this.unknownRechecked && this.hasUnknownGroups()) {
       this.unknownRechecked = true
       this.logDebug(this.t('unknown-status-recheck'))
-      await this.doCheck(this.isBuiltinSource())
+      await this.doCheck()
     }
   }
 
